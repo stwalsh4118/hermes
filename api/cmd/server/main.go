@@ -1,19 +1,19 @@
 package main
 
 import (
+	"context"
 	"os"
-
-	// Core dependencies for subsequent tasks
-	_ "github.com/gin-gonic/gin"                              // Task 1-8: HTTP routing
-	_ "github.com/golang-migrate/migrate/v4"                  // Task 1-5: Database migrations
-	_ "github.com/golang-migrate/migrate/v4/database/sqlite3" // Task 1-5: SQLite migration driver
-	_ "github.com/golang-migrate/migrate/v4/source/file"      // Task 1-5: File-based migrations
-	_ "github.com/google/uuid"                                // Tasks 1-5, 1-6, 1-7: UUID generation
-	_ "github.com/mattn/go-sqlite3"                           // Tasks 1-5, 1-6, 1-7: SQLite driver
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/stwalsh4118/hermes/internal/config"
+	"github.com/stwalsh4118/hermes/internal/db"
 	"github.com/stwalsh4118/hermes/internal/logger"
+	"github.com/stwalsh4118/hermes/internal/server"
 )
+
+const shutdownTimeout = 10 * time.Second
 
 func main() {
 	// Load configuration from .env, config files, environment variables, and defaults
@@ -53,11 +53,62 @@ func main() {
 			Msg("Media library path not configured (optional at this stage)")
 	}
 
-	logger.Log.Info().Msg("Foundation setup complete")
+	// Connect to database
+	database, err := db.New(cfg.Database.Path)
+	if err != nil {
+		logger.Log.Fatal().Err(err).Msg("Failed to connect to database")
+	}
+	defer database.Close()
 
-	// TODO: Server initialization will be implemented in task 1-8
-	// This will include:
-	// - Database connection (Task 1-7)
-	// - Gin router setup (Task 1-8)
-	// - Graceful shutdown handling (Task 1-8)
+	logger.Log.Info().Str("path", cfg.Database.Path).Msg("Connected to database")
+
+	// Get underlying sql.DB for migrations
+	sqlDB, err := database.GetSQLDB()
+	if err != nil {
+		logger.Log.Fatal().Err(err).Msg("Failed to get sql.DB for migrations")
+	}
+
+	// Run migrations
+	if err := db.RunMigrations(sqlDB, "file://migrations"); err != nil {
+		logger.Log.Fatal().Err(err).Msg("Failed to run migrations")
+	}
+
+	logger.Log.Info().Msg("Database migrations completed")
+
+	// Create and start server
+	srv := server.New(cfg, database)
+
+	// Channel to listen for errors from the server
+	serverErrors := make(chan error, 1)
+
+	// Start server in goroutine
+	go func() {
+		serverErrors <- srv.Start()
+	}()
+
+	// Channel to listen for interrupt signals
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
+
+	// Block until we receive an error or interrupt signal
+	select {
+	case err := <-serverErrors:
+		logger.Log.Fatal().Err(err).Msg("Server error")
+
+	case sig := <-shutdown:
+		logger.Log.Info().
+			Str("signal", sig.String()).
+			Msg("Shutdown signal received")
+
+		// Give outstanding requests time to complete
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+
+		if err := srv.Shutdown(ctx); err != nil {
+			logger.Log.Error().Err(err).Msg("Graceful shutdown failed")
+			os.Exit(1)
+		}
+	}
+
+	logger.Log.Info().Msg("Server stopped successfully")
 }
