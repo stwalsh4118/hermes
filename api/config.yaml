@@ -1,0 +1,25 @@
+# Hermes Virtual TV Channel Service - Development Configuration
+
+server:
+  port: 8080
+  host: "0.0.0.0"
+  readtimeout: 30s
+  writetimeout: 30s
+
+database:
+  path: "./data/hermes.db"
+  enablewal: true
+
+logging:
+  level: "debug"
+  pretty: true
+
+media:
+  supportedformats:
+    - mp4
+    - mkv
+    - avi
+    - mov
+  # Uncomment and set your media library path when ready:
+  # librarypath: "/path/to/your/media/library"
+
