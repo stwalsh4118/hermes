@@ -210,30 +210,39 @@ export const api = {
 - PBI-1: Project Setup & Database Foundation (soft dependency - helps to have API running for testing)
 
 **External Dependencies:**
-- Node.js 18+
-- npm or yarn
+- Node.js 20+
+- pnpm
 
 **Packages:**
-- next (14+)
-- react
-- react-dom
+- next (15.5)
+- react (19.1.1)
+- react-dom (19.1.1)
 - typescript
 - tailwindcss
 - @radix-ui/react-* (via shadcn/ui)
 - lucide-react
-- axios or native fetch
+- @tanstack/react-query (5.85)
+- zustand (5.0.8)
+- next-themes (for dark mode)
 
 ## Open Questions
 
-- Should we use Zustand, Context, or other state management?
-- Do we want dark mode support from the start?
-- Should we use axios or native fetch for API calls?
-- Do we need authentication UI components (login, etc.)?
-- Should we set up Storybook for component development?
-- Do we want to use React Query / TanStack Query for data fetching?
+### Resolved Technical Decisions (2025-10-27)
+
+- **State Management**: Zustand for client state, TanStack Query for server state ✅
+- **Dark Mode**: Yes, implement from the start ✅
+- **Data Fetching**: TanStack Query (v5.85) ✅
+- **Package Manager**: pnpm ✅
+- **Latest Versions**: Next.js 15.5, React 19.1.1, Zustand 5.0.8 ✅
+- **API Client**: TanStack Query (no need for axios or manual fetch) ✅
+
+### Remaining Questions
+
+- Do we need authentication UI components (login, etc.)? - Not in this PBI
+- Should we set up Storybook for component development? - Not in this PBI
 
 ## Related Tasks
 
-Tasks for this PBI will be defined in [tasks.md](./tasks.md) once PBI moves to "Agreed" status.
+See [tasks.md](./tasks.md) for the complete task breakdown and implementation plan.
 
 
