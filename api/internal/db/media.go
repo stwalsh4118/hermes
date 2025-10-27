@@ -89,6 +89,26 @@ func (r *MediaRepository) ListByShow(ctx context.Context, showName string, limit
 	return mediaList, nil
 }
 
+// Count returns the total number of media items
+func (r *MediaRepository) Count(ctx context.Context) (int64, error) {
+	var count int64
+	result := r.db.WithContext(ctx).Model(&models.Media{}).Count(&count)
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to count media: %w", MapGormError(result.Error))
+	}
+	return count, nil
+}
+
+// CountByShow returns the total number of media items for a specific show
+func (r *MediaRepository) CountByShow(ctx context.Context, showName string) (int64, error) {
+	var count int64
+	result := r.db.WithContext(ctx).Model(&models.Media{}).Where("show_name = ?", showName).Count(&count)
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to count media by show: %w", MapGormError(result.Error))
+	}
+	return count, nil
+}
+
 // Update updates an existing media item
 // Note: Uses map-based updates to support setting fields to zero values
 func (r *MediaRepository) Update(ctx context.Context, media *models.Media) error {
