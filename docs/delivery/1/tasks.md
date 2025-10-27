@@ -8,7 +8,7 @@ This document lists all tasks associated with PBI 1.
 
 | Task ID | Name | Status | Description |
 | :------ | :--- | :----- | :---------- |
-| 1-1 | [Initialize Go Project Structure](./1-1.md) | Proposed | Create directory structure, initialize go.mod with Go 1.25+, and set up project foundation |
+| 1-1 | [Initialize Go Project Structure](./1-1.md) | Done | Create directory structure, initialize go.mod with Go 1.25+, and set up project foundation |
 | 1-2 | [Add Core Dependencies](./1-2.md) | Proposed | Add all required Go packages: Gin, SQLite driver, Viper, zerolog, golang-migrate, and UUID |
 | 1-3 | [Configure Logging with zerolog](./1-3.md) | Proposed | Set up zerolog with structured logging, log levels, and Gin request logging middleware |
 | 1-4 | [Implement Configuration Management](./1-4.md) | Proposed | Create config package using Viper with support for config files and environment variables |
