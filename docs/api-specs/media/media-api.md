@@ -182,7 +182,213 @@ err := scanner.CancelScan(scanID)
 
 ## REST Endpoints
 
-To be defined.
+### POST /api/media/scan
+Triggers a media library scan
+
+**Request:**
+```json
+{
+  "path": "/path/to/media"
+}
+```
+
+**Response (201 Created):**
+```json
+{
+  "scan_id": "uuid-here",
+  "message": "Scan started"
+}
+```
+
+**Errors:**
+- `400 Bad Request` - Missing or invalid path
+- `409 Conflict` - Scan already running
+- `500 Internal Server Error` - Failed to start scan
+
+**Usage:**
+```bash
+curl -X POST http://localhost:8080/api/media/scan \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/media/videos"}'
+```
+
+### GET /api/media/scan/:scanId/status
+Get scan progress
+
+**Response (200 OK):**
+```json
+{
+  "scan_id": "uuid-here",
+  "status": "running",
+  "total_files": 100,
+  "processed_files": 50,
+  "success_count": 48,
+  "failed_count": 2,
+  "current_file": "/media/videos/video.mp4",
+  "start_time": "2025-10-27T12:00:00Z",
+  "end_time": null,
+  "errors": ["error message 1", "error message 2"]
+}
+```
+
+**Status Values:**
+- `running` - Scan in progress
+- `completed` - Scan finished successfully
+- `cancelled` - Scan was cancelled
+- `failed` - Scan failed
+
+**Errors:**
+- `404 Not Found` - Scan ID not found
+
+**Usage:**
+```bash
+curl http://localhost:8080/api/media/scan/{scanId}/status
+```
+
+### GET /api/media
+List all media items with pagination and filtering
+
+**Query Parameters:**
+- `limit` (optional) - Items per page (default: 20, max: 100)
+- `offset` (optional) - Number of items to skip (default: 0)
+- `show` (optional) - Filter by show name
+
+**Response (200 OK):**
+```json
+{
+  "items": [
+    {
+      "id": "uuid-here",
+      "file_path": "/media/videos/video.mp4",
+      "title": "Show Name - S01E05",
+      "show_name": "Show Name",
+      "season": 1,
+      "episode": 5,
+      "duration": 3600,
+      "video_codec": "h264",
+      "audio_codec": "aac",
+      "resolution": "1920x1080",
+      "file_size": 1073741824,
+      "created_at": "2025-10-27T12:00:00Z"
+    }
+  ],
+  "total": 100,
+  "limit": 20,
+  "offset": 0
+}
+```
+
+**Errors:**
+- `400 Bad Request` - Invalid query parameters
+- `500 Internal Server Error` - Query failed
+
+**Usage:**
+```bash
+# List all media
+curl http://localhost:8080/api/media
+
+# With pagination
+curl http://localhost:8080/api/media?limit=10&offset=20
+
+# Filter by show
+curl "http://localhost:8080/api/media?show=Friends"
+```
+
+### GET /api/media/:id
+Get single media item details
+
+**Response (200 OK):**
+```json
+{
+  "id": "uuid-here",
+  "file_path": "/media/videos/video.mp4",
+  "title": "Show Name - S01E05",
+  "show_name": "Show Name",
+  "season": 1,
+  "episode": 5,
+  "duration": 3600,
+  "video_codec": "h264",
+  "audio_codec": "aac",
+  "resolution": "1920x1080",
+  "file_size": 1073741824,
+  "created_at": "2025-10-27T12:00:00Z"
+}
+```
+
+**Errors:**
+- `400 Bad Request` - Invalid UUID format
+- `404 Not Found` - Media not found
+- `500 Internal Server Error` - Query failed
+
+**Usage:**
+```bash
+curl http://localhost:8080/api/media/{uuid}
+```
+
+### PUT /api/media/:id
+Update media metadata (partial update)
+
+**Request:**
+```json
+{
+  "title": "Updated Title",
+  "show_name": "Updated Show",
+  "season": 2,
+  "episode": 10
+}
+```
+
+All fields are optional - only provided fields will be updated.
+
+**Response (200 OK):**
+```json
+{
+  "id": "uuid-here",
+  "file_path": "/media/videos/video.mp4",
+  "title": "Updated Title",
+  "show_name": "Updated Show",
+  "season": 2,
+  "episode": 10,
+  "duration": 3600,
+  "video_codec": "h264",
+  "audio_codec": "aac",
+  "resolution": "1920x1080",
+  "file_size": 1073741824,
+  "created_at": "2025-10-27T12:00:00Z"
+}
+```
+
+**Errors:**
+- `400 Bad Request` - Invalid UUID or request body
+- `404 Not Found` - Media not found
+- `500 Internal Server Error` - Update failed
+
+**Usage:**
+```bash
+curl -X PUT http://localhost:8080/api/media/{uuid} \
+  -H "Content-Type: application/json" \
+  -d '{"title": "New Title", "season": 2}'
+```
+
+### DELETE /api/media/:id
+Delete media from library
+
+**Response (200 OK):**
+```json
+{
+  "message": "Media deleted successfully"
+}
+```
+
+**Errors:**
+- `400 Bad Request` - Invalid UUID format
+- `404 Not Found` - Media not found
+- `500 Internal Server Error` - Delete failed
+
+**Usage:**
+```bash
+curl -X DELETE http://localhost:8080/api/media/{uuid}
+```
 
 ## Data Contracts
 

@@ -132,6 +132,8 @@ GetByID(ctx, uuid.UUID) (*models.Media, error)
 GetByPath(ctx, string) (*models.Media, error)
 List(ctx, limit, offset int) ([]*models.Media, error)
 ListByShow(ctx, string, limit, offset int) ([]*models.Media, error)
+Count(ctx) (int64, error)
+CountByShow(ctx, string) (int64, error)
 Update(ctx, *models.Media) error
 Delete(ctx, uuid.UUID) error
 ```

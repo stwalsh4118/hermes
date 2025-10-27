@@ -606,8 +606,10 @@ Each service registers its routes via a setup function:
 // internal/api/health.go
 func SetupHealthRoutes(apiGroup *gin.RouterGroup, database *db.DB)
 
+// internal/api/media.go
+func SetupMediaRoutes(apiGroup *gin.RouterGroup, scanner *media.Scanner, repos *db.Repositories)
+
 // Future services follow same pattern:
-// func SetupMediaRoutes(apiGroup *gin.RouterGroup, repos *db.Repositories)
 // func SetupChannelRoutes(apiGroup *gin.RouterGroup, repos *db.Repositories)
 ```
 
