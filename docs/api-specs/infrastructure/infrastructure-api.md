@@ -2,6 +2,52 @@
 
 Last Updated: 2025-10-27
 
+## Database Migrations
+
+### Migration Package
+
+Location: `internal/db/migrations.go`
+
+**Running Migrations:**
+```go
+func RunMigrations(db *sql.DB, migrationsPath string) error
+```
+
+Executes database migrations using golang-migrate. Applies all pending migrations to the provided database connection.
+
+**Parameters:**
+- `db`: An open `*sql.DB` connection
+- `migrationsPath`: Path to migrations directory with `file://` prefix (e.g., `"file://./migrations"`)
+
+**Returns:**
+- `error`: nil if migrations succeed or if there are no changes to apply (ErrNoChange is treated as success)
+
+**Usage Example:**
+```go
+import (
+    "database/sql"
+    "github.com/stwalsh4118/hermes/internal/db"
+    _ "github.com/mattn/go-sqlite3"
+)
+
+db, err := sql.Open("sqlite3", "./data/hermes.db")
+if err != nil {
+    return fmt.Errorf("failed to open database: %w", err)
+}
+defer db.Close()
+
+// Run migrations
+if err := db.RunMigrations(db, "file://./migrations"); err != nil {
+    return fmt.Errorf("migration failed: %w", err)
+}
+```
+
+**Migration Files:**
+- Located in `migrations/` directory
+- Numbered sequentially: `000001_name.up.sql`, `000001_name.down.sql`
+- Up migrations create/modify schema
+- Down migrations rollback changes
+
 ## Configuration Management
 
 ### Config Package
