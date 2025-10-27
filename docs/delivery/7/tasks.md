@@ -8,7 +8,7 @@ This document lists all tasks associated with PBI 7.
 
 | Task ID | Name | Status | Description |
 | :------ | :--- | :----- | :---------- |
-| 7-1 | [Initialize Next.js 15 project with pnpm and TypeScript](./7-1.md) | Proposed | Create Next.js 15.5 project with App Router, TypeScript, and pnpm |
+| 7-1 | [Initialize Next.js 15 project with pnpm and TypeScript](./7-1.md) | Done | Create Next.js 15.5 project with App Router, TypeScript, and pnpm |
 | 7-2 | [Set up Tailwind CSS with dark mode theming](./7-2.md) | Proposed | Configure Tailwind CSS with custom theme and dark mode support |
 | 7-3 | [Configure shadcn/ui component library](./7-3.md) | Proposed | Install and configure shadcn/ui with base components |
 | 7-4 | [Set up TanStack Query and API client layer](./7-4.md) | Proposed | Configure TanStack Query for data fetching and create API client |
