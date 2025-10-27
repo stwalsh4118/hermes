@@ -1,6 +1,6 @@
 # Infrastructure API
 
-Last Updated: 2025-10-27
+Last Updated: 2025-10-27 (Models added with GORM)
 
 ## Database Migrations
 
@@ -267,6 +267,257 @@ router.Use(middleware.RequestLogger())
 - **info**: General informational messages
 - **warn**: Warning messages for potentially harmful situations
 - **error**: Error messages for failures
+
+## Data Models
+
+### Models Package
+
+Location: `internal/models/`
+
+The models package defines all domain entities with proper JSON and GORM tags for serialization and ORM mapping. GORM is used for database operations while schema management is handled by golang-migrate migrations.
+
+### Channel Model
+
+Location: `internal/models/channel.go`
+
+```go
+type Channel struct {
+    ID        uuid.UUID `json:"id" gorm:"type:text;primaryKey;column:id"`
+    Name      string    `json:"name" gorm:"type:text;not null;column:name" validate:"required,min=1,max=255"`
+    Icon      *string   `json:"icon,omitempty" gorm:"type:text;column:icon"`
+    StartTime time.Time `json:"start_time" gorm:"type:datetime;not null;column:start_time" validate:"required"`
+    Loop      bool      `json:"loop" gorm:"type:integer;not null;default:0;column:loop"`
+    CreatedAt time.Time `json:"created_at" gorm:"type:datetime;default:CURRENT_TIMESTAMP;column:created_at"`
+    UpdatedAt time.Time `json:"updated_at" gorm:"type:datetime;default:CURRENT_TIMESTAMP;column:updated_at"`
+}
+
+func NewChannel(name string, startTime time.Time, loop bool) *Channel
+```
+
+**Usage Example:**
+```go
+import (
+    "time"
+    "github.com/stwalsh4118/hermes/internal/models"
+)
+
+// Create a new channel
+channel := models.NewChannel("Comedy Central", time.Now(), true)
+
+// Manually create with specific values
+channel := &models.Channel{
+    ID:        uuid.New(),
+    Name:      "Drama Channel",
+    StartTime: time.Now().Add(2 * time.Hour),
+    Loop:      false,
+    CreatedAt: time.Now().UTC(),
+    UpdatedAt: time.Now().UTC(),
+}
+```
+
+### Media Model
+
+Location: `internal/models/media.go`
+
+```go
+type Media struct {
+    ID         uuid.UUID `json:"id" gorm:"type:text;primaryKey;column:id"`
+    FilePath   string    `json:"file_path" gorm:"type:text;not null;uniqueIndex;column:file_path" validate:"required"`
+    Title      string    `json:"title" gorm:"type:text;not null;column:title" validate:"required"`
+    ShowName   *string   `json:"show_name,omitempty" gorm:"type:text;column:show_name"`
+    Season     *int      `json:"season,omitempty" gorm:"type:integer;column:season"`
+    Episode    *int      `json:"episode,omitempty" gorm:"type:integer;column:episode"`
+    Duration   int64     `json:"duration" gorm:"type:integer;not null;column:duration" validate:"required,gt=0"`
+    VideoCodec *string   `json:"video_codec,omitempty" gorm:"type:text;column:video_codec"`
+    AudioCodec *string   `json:"audio_codec,omitempty" gorm:"type:text;column:audio_codec"`
+    Resolution *string   `json:"resolution,omitempty" gorm:"type:text;column:resolution"`
+    FileSize   *int64    `json:"file_size,omitempty" gorm:"type:integer;column:file_size"`
+    CreatedAt  time.Time `json:"created_at" gorm:"type:datetime;default:CURRENT_TIMESTAMP;column:created_at"`
+}
+
+func NewMedia(filePath, title string, duration int64) *Media
+func (m *Media) DurationString() string  // Returns HH:MM:SS format
+```
+
+**Usage Example:**
+```go
+import "github.com/stwalsh4118/hermes/internal/models"
+
+// Create a new media item
+media := models.NewMedia("/media/videos/movie.mp4", "Action Movie", 7200) // 2 hours
+
+// Set optional fields
+showName := "Friends"
+season := 1
+episode := 5
+media.ShowName = &showName
+media.Season = &season
+media.Episode = &episode
+
+// Get formatted duration
+fmt.Println(media.DurationString()) // Output: "02:00:00"
+```
+
+### PlaylistItem Model
+
+Location: `internal/models/playlist_item.go`
+
+```go
+type PlaylistItem struct {
+    ID        uuid.UUID `json:"id" gorm:"type:text;primaryKey;column:id"`
+    ChannelID uuid.UUID `json:"channel_id" gorm:"type:text;not null;column:channel_id" validate:"required"`
+    MediaID   uuid.UUID `json:"media_id" gorm:"type:text;not null;column:media_id" validate:"required"`
+    Position  int       `json:"position" gorm:"type:integer;not null;column:position" validate:"gte=0"`
+    CreatedAt time.Time `json:"created_at" gorm:"type:datetime;default:CURRENT_TIMESTAMP;column:created_at"`
+    Media     *Media    `json:"media,omitempty" gorm:"-"`  // Populated by joins
+}
+
+func NewPlaylistItem(channelID, mediaID uuid.UUID, position int) *PlaylistItem
+```
+
+**Usage Example:**
+```go
+import "github.com/stwalsh4118/hermes/internal/models"
+
+// Create a playlist item
+item := models.NewPlaylistItem(channelID, mediaID, 0)
+
+// The Media field is populated when fetching with JOIN queries
+// It has gorm:"-" tag so it's not stored in the database
+```
+
+### Settings Model
+
+Location: `internal/models/settings.go`
+
+```go
+type Settings struct {
+    ID               int       `json:"id" gorm:"type:integer;primaryKey;default:1;column:id"`
+    MediaLibraryPath string    `json:"media_library_path" gorm:"type:text;not null;column:media_library_path" validate:"required"`
+    TranscodeQuality string    `json:"transcode_quality" gorm:"type:text;default:medium;column:transcode_quality" validate:"oneof=high medium low"`
+    HardwareAccel    string    `json:"hardware_accel" gorm:"type:text;default:none;column:hardware_accel" validate:"oneof=none nvenc qsv vaapi videotoolbox"`
+    ServerPort       int       `json:"server_port" gorm:"type:integer;default:8080;column:server_port" validate:"gte=1,lte=65535"`
+    UpdatedAt        time.Time `json:"updated_at" gorm:"type:datetime;default:CURRENT_TIMESTAMP;column:updated_at"`
+}
+
+func DefaultSettings() *Settings
+```
+
+**Constants:**
+```go
+// Quality constants
+const (
+    QualityHigh   = "high"
+    QualityMedium = "medium"
+    QualityLow    = "low"
+)
+
+// Hardware acceleration constants
+const (
+    HardwareAccelNone         = "none"
+    HardwareAccelNVENC        = "nvenc"
+    HardwareAccelQSV          = "qsv"
+    HardwareAccelVAAPI        = "vaapi"
+    HardwareAccelVideoToolbox = "videotoolbox"
+)
+```
+
+**Usage Example:**
+```go
+import "github.com/stwalsh4118/hermes/internal/models"
+
+// Create settings with defaults
+settings := models.DefaultSettings()
+
+// Modify as needed
+settings.MediaLibraryPath = "/path/to/media"
+settings.TranscodeQuality = models.QualityHigh
+settings.HardwareAccel = models.HardwareAccelNVENC
+settings.ServerPort = 9090
+```
+
+### StreamSession Model
+
+Location: `internal/models/stream_session.go`
+
+**Note:** This model is NOT persisted to the database. It's used for runtime streaming state management only.
+
+```go
+type StreamSession struct {
+    ID          uuid.UUID `json:"id"`
+    ChannelID   uuid.UUID `json:"channel_id"`
+    StartedAt   time.Time `json:"started_at"`
+    ClientCount int       `json:"client_count"`
+    FFmpegPID   int       `json:"ffmpeg_pid"`
+    mu          sync.RWMutex  // Internal mutex for thread-safety
+}
+
+func NewStreamSession(channelID uuid.UUID) *StreamSession
+func (s *StreamSession) IncrementClients()
+func (s *StreamSession) DecrementClients()
+func (s *StreamSession) GetClientCount() int
+func (s *StreamSession) SetFFmpegPID(pid int)
+func (s *StreamSession) GetFFmpegPID() int
+func (s *StreamSession) IsActive() bool
+```
+
+**Usage Example:**
+```go
+import "github.com/stwalsh4118/hermes/internal/models"
+
+// Create a new stream session
+session := models.NewStreamSession(channelID)
+
+// Track client connections (thread-safe)
+session.IncrementClients()
+fmt.Println(session.GetClientCount())  // Output: 1
+fmt.Println(session.IsActive())        // Output: true
+
+session.DecrementClients()
+fmt.Println(session.GetClientCount())  // Output: 0
+fmt.Println(session.IsActive())        // Output: false
+
+// Manage FFmpeg process (thread-safe)
+session.SetFFmpegPID(12345)
+pid := session.GetFFmpegPID()
+fmt.Println(pid)  // Output: 12345
+```
+
+### Model Usage Notes
+
+**UUIDs:**
+- All entity IDs use `uuid.UUID` from `github.com/google/uuid`
+- Constructor functions automatically generate new UUIDs
+
+**Timestamps:**
+- All timestamps stored as `time.Time` in UTC
+- Constructor functions automatically set current UTC time
+
+**Nullable Fields:**
+- Use pointer types (*string, *int, *int64) for nullable database columns
+- JSON tags include `omitempty` to exclude null fields from JSON output
+- Distinguishes between null and zero values
+
+**Tags:**
+- `json`: Field name in JSON serialization
+- `gorm`: GORM field configuration (type, constraints, column name)
+- `validate`: Validation rules (prepared for future validator integration)
+- `gorm:"-"`: Excludes field from database operations (e.g., joined data)
+
+**GORM Tag Options:**
+- `type:text` or `type:integer`: SQLite column type
+- `primaryKey`: Marks field as primary key
+- `not null`: Field cannot be NULL
+- `uniqueIndex`: Creates unique index on the field
+- `default:value`: Sets default value
+- `column:name`: Explicitly sets column name
+- `-`: Excludes field from database mapping
+
+**Database Operations:**
+GORM is used for all database operations (queries, inserts, updates, deletes), while schema management is handled by golang-migrate to maintain explicit control over migrations.
+
+**Thread Safety (StreamSession):**
+StreamSession uses `sync.RWMutex` for concurrent access protection. Always use provided accessor methods (`GetClientCount()`, `GetFFmpegPID()`) instead of direct field access.
 
 ## Best Practices
 
