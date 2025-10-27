@@ -20,6 +20,14 @@ coverage.txt
 *.db
 *.db-*
 
+# Environment variables / Secrets
+.env
+.env.*
+!.env.example
+api/.env
+api/.env.*
+!api/.env.example
+
 # Logs
 *.log
 
