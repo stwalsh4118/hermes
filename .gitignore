@@ -1,0 +1,48 @@
+# Binaries
+/server
+/hermes
+api/server
+api/tmp/
+
+# Build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test files
+*.test
+*.out
+coverage.txt
+
+# Database files
+*.db
+*.db-*
+
+# Logs
+*.log
+
+# Air (hot reload)
+build-errors.log
+
+# Go
+/vendor/
+
+# Node.js / Frontend
+web/node_modules/
+web/.next/
+web/out/
+web/.env*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
