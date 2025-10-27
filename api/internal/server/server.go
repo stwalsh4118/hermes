@@ -11,22 +11,30 @@ import (
 	"github.com/stwalsh4118/hermes/internal/config"
 	"github.com/stwalsh4118/hermes/internal/db"
 	"github.com/stwalsh4118/hermes/internal/logger"
+	"github.com/stwalsh4118/hermes/internal/media"
 	"github.com/stwalsh4118/hermes/internal/middleware"
 )
 
 // Server represents the HTTP server
 type Server struct {
-	config *config.Config
-	db     *db.DB
-	router *gin.Engine
-	server *http.Server
+	config  *config.Config
+	db      *db.DB
+	repos   *db.Repositories
+	scanner *media.Scanner
+	router  *gin.Engine
+	server  *http.Server
 }
 
 // New creates a new server instance
 func New(cfg *config.Config, database *db.DB) *Server {
+	repos := db.NewRepositories(database)
+	scanner := media.NewScanner(repos)
+
 	return &Server{
-		config: cfg,
-		db:     database,
+		config:  cfg,
+		db:      database,
+		repos:   repos,
+		scanner: scanner,
 	}
 }
 
@@ -52,9 +60,7 @@ func (s *Server) setupRouter() {
 
 	// Register service routes
 	api.SetupHealthRoutes(apiGroup, s.db)
-
-	// Future service routes will be registered here
-	// Example: api.SetupMediaRoutes(apiGroup, s.db)
+	api.SetupMediaRoutes(apiGroup, s.scanner, s.repos)
 }
 
 // Start starts the HTTP server
@@ -83,8 +89,16 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	logger.Log.Info().Msg("Shutting down server gracefully")
 
-	if err := s.server.Shutdown(ctx); err != nil {
-		return fmt.Errorf("server shutdown error: %w", err)
+	// Stop the scanner cleanup goroutine
+	if s.scanner != nil {
+		s.scanner.Stop()
+	}
+
+	// Check if server was started before attempting shutdown
+	if s.server != nil {
+		if err := s.server.Shutdown(ctx); err != nil {
+			return fmt.Errorf("server shutdown error: %w", err)
+		}
 	}
 
 	logger.Log.Info().Msg("Server stopped")
