@@ -44,7 +44,7 @@ func ParseFilename(fullPath string) ParseResult {
 	// Get the directory and filename components
 	dir := filepath.Dir(fullPath)
 	filename := filepath.Base(fullPath)
-	
+
 	// Remove extension
 	ext := filepath.Ext(filename)
 	nameWithoutExt := strings.TrimSuffix(filename, ext)
@@ -73,7 +73,7 @@ func tryStandardPatterns(filename string, result *ParseResult) bool {
 		showName := cleanShowName(matches[1])
 		season := parseInt(matches[2])
 		episode := parseInt(matches[3])
-		
+
 		result.ShowName = &showName
 		result.Season = season
 		result.Episode = episode
@@ -85,7 +85,7 @@ func tryStandardPatterns(filename string, result *ParseResult) bool {
 		showName := cleanShowName(matches[1])
 		season := parseInt(matches[2])
 		episode := parseInt(matches[3])
-		
+
 		result.ShowName = &showName
 		result.Season = season
 		result.Episode = episode
@@ -97,7 +97,7 @@ func tryStandardPatterns(filename string, result *ParseResult) bool {
 		showName := cleanShowName(matches[1])
 		season := parseInt(matches[2])
 		episode := parseInt(matches[3])
-		
+
 		result.ShowName = &showName
 		result.Season = season
 		result.Episode = episode
@@ -154,13 +154,13 @@ func cleanShowName(name string) string {
 	// Replace dots and underscores with spaces
 	cleaned := strings.ReplaceAll(name, ".", " ")
 	cleaned = strings.ReplaceAll(cleaned, "_", " ")
-	
+
 	// Trim whitespace
 	cleaned = strings.TrimSpace(cleaned)
-	
+
 	// Collapse multiple spaces
 	cleaned = regexp.MustCompile(`\s+`).ReplaceAllString(cleaned, " ")
-	
+
 	return cleaned
 }
 
@@ -208,4 +208,3 @@ func padNumber(num int) string {
 	}
 	return strconv.Itoa(num)
 }
-

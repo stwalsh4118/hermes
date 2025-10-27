@@ -298,14 +298,17 @@ Example of the corresponding update in 1-tasks.md:
 - **event_transition on "submit_for_review" from InProgress to Review**:
   1. Ensure all task requirements are met.
   2. Run all relevant tests and ensure they pass.
-  3. Run automated code review using `coderabbit review --base main --plain` to perform AI-driven code review.
-  4. Review the coderabbit results and address any critical issues found before proceeding.
-  5. Update task documentation with implementation details.
-  5a. If the task created or modified any APIs, update the relevant API specification files in `docs/api-specs/`.
-  5b. Document which API specs were updated in the task's 'Files Modified' section.
-  6. Create a pull request or mark as ready for review.
-  7. Notify the User that review is needed, including a summary of the coderabbit review results.
-  8. Log submission for review in task history.
+  3. **Run Code Quality Tools** (see Section 4.6.1 for details):
+     - For Go code: Run `golangci-lint run` and `go vet ./...` in the `api/` directory
+     - Address all errors and warnings before proceeding
+  4. Run automated code review using `coderabbit review --base main --plain` to perform AI-driven code review.
+  5. Review the coderabbit results and address any critical issues found before proceeding.
+  6. Update task documentation with implementation details.
+  6a. If the task created or modified any APIs, update the relevant API specification files in `docs/api-specs/`.
+  6b. Document which API specs were updated in the task's 'Files Modified' section.
+  7. Create a pull request or mark as ready for review.
+  8. Notify the User that review is needed, including a summary of linter and coderabbit review results.
+  9. Log submission for review in task history.
 
 - **event_transition on "approve" from Review to Done**:
   1. Verify all acceptance criteria are met.
@@ -343,6 +346,77 @@ Example of the corresponding update in 1-tasks.md:
   2. Update task documentation with resolution details.
   3. Resume work on the task.
   4. Notify relevant stakeholders that work has resumed.
+
+### 4.6.1 Code Quality Tools
+
+> Rationale: Ensures consistent code quality and catches common issues before code review.
+
+Before submitting any code for review, the following tools MUST be run and all issues addressed:
+
+#### Go (API)
+
+Run these commands from the `api/` directory:
+
+**Quick check (recommended):**
+```bash
+cd api && make check
+```
+This runs all quality checks: formatting, vet, lint, and tests.
+
+**Individual commands:**
+
+1. **golangci-lint**: Comprehensive linting with multiple analyzers
+   ```bash
+   cd api && make lint
+   # or: golangci-lint run
+   ```
+   - Configuration: `api/.golangci.yml`
+   - Must pass with zero errors
+   - Warnings should be addressed or justified
+
+2. **go vet**: Official Go static analysis tool
+   ```bash
+   cd api && make vet
+   # or: go vet ./...
+   ```
+   - Must pass with zero errors
+   - Checks for common Go mistakes
+
+3. **go test**: Run all tests with race detector
+   ```bash
+   cd api && make test-race
+   # or: go test -race ./...
+   ```
+   - All tests must pass
+   - No race conditions detected
+
+4. **Test coverage**: Verify adequate test coverage
+   ```bash
+   cd api && make coverage
+   # or: go test -cover ./...
+   ```
+   - Aim for >80% coverage on new code
+   - Report coverage in task documentation
+
+5. **Format code**: Auto-fix formatting issues
+   ```bash
+   cd api && make fmt
+   # or: gofmt -w .
+   ```
+
+#### TypeScript/JavaScript (Web)
+
+For future web development, establish similar tools:
+- ESLint for linting
+- Prettier for formatting
+- TypeScript compiler checks
+- Unit test execution
+
+#### Linter Exceptions
+
+- If a linter rule must be disabled for a valid reason, add an inline comment explaining why
+- Document any disabled rules in the task's review section
+- Never disable security-related checks without explicit approval
 
 ## 4.7 One In Progress Task Limit
 

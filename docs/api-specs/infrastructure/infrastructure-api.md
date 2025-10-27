@@ -1,6 +1,6 @@
 # Infrastructure API
 
-Last Updated: 2025-10-27 (HTTP Server and Health Check added)
+Last Updated: 2025-10-27 (Development Tools and Linting added)
 
 ## Database Migrations
 
@@ -611,6 +611,50 @@ func SetupHealthRoutes(apiGroup *gin.RouterGroup, database *db.DB)
 // func SetupChannelRoutes(apiGroup *gin.RouterGroup, repos *db.Repositories)
 ```
 
+## Development Tools
+
+### Makefile Commands
+
+Location: `api/Makefile`
+
+**Quick check (all quality tools):**
+```bash
+cd api && make check
+```
+Runs: formatting check, vet, lint, and tests.
+
+**Individual commands:**
+```bash
+make test          # Run all tests
+make test-race     # Tests with race detector
+make coverage      # Tests with coverage report
+make lint          # Run golangci-lint
+make vet           # Run go vet
+make fmt           # Format code
+make run           # Start server
+make clean         # Clean artifacts
+```
+
+### Code Quality Tools
+
+**golangci-lint Configuration:** `api/.golangci.yml`
+
+Enabled linters include:
+- `errcheck`, `govet`, `staticcheck` - Critical checks
+- `gosec` - Security analysis
+- `gofmt`, `goimports` - Formatting
+- `errorlint` - Error wrapping patterns
+- `gocyclo` - Complexity (max 15)
+
+**Required before code review:**
+1. `make fmt` - Format code
+2. `make vet` - Run go vet
+3. `make lint` - Run golangci-lint
+4. `make test` - All tests pass
+5. Coverage >80% for new code
+
+See `api/DEVELOPMENT.md` for detailed guide.
+
 ## Best Practices
 
 1. Initialize logger once at application startup
@@ -620,4 +664,6 @@ func SetupHealthRoutes(apiGroup *gin.RouterGroup, database *db.DB)
 5. Use pretty format in development for readability
 6. Each service should provide a `Setup*Routes()` function for route registration
 7. Keep routes co-located with handlers for better maintainability
+8. Run `make check` before submitting code for review
+9. Always run tests with race detector (`make test-race`)
 
