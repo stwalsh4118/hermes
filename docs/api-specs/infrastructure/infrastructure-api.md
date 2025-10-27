@@ -1,6 +1,6 @@
 # Infrastructure API
 
-Last Updated: 2025-10-27 (Models added with GORM)
+Last Updated: 2025-10-27 (HTTP Server and Health Check added)
 
 ## Database Migrations
 
@@ -519,6 +519,98 @@ GORM is used for all database operations (queries, inserts, updates, deletes), w
 **Thread Safety (StreamSession):**
 StreamSession uses `sync.RWMutex` for concurrent access protection. Always use provided accessor methods (`GetClientCount()`, `GetFFmpegPID()`) instead of direct field access.
 
+## HTTP Server
+
+### Server Package
+
+Location: `internal/server/server.go`
+
+**Creating Server:**
+```go
+func New(cfg *config.Config, database *db.DB) *Server
+```
+
+**Starting Server:**
+```go
+func (s *Server) Start() error
+```
+- Sets up Gin router with middleware (logging, recovery, CORS)
+- Configures HTTP server with timeouts from config
+- Starts listening on configured host/port
+- Blocks until server error or shutdown
+
+**Graceful Shutdown:**
+```go
+func (s *Server) Shutdown(ctx context.Context) error
+```
+- Gracefully stops accepting new connections
+- Waits for in-flight requests to complete (within context timeout)
+- Returns error if shutdown fails
+
+**Usage Example:**
+```go
+import (
+    "context"
+    "time"
+    "github.com/stwalsh4118/hermes/internal/config"
+    "github.com/stwalsh4118/hermes/internal/db"
+    "github.com/stwalsh4118/hermes/internal/server"
+)
+
+cfg, _ := config.Load()
+database, _ := db.New(cfg.Database.Path)
+srv := server.New(cfg, database)
+
+// Start in goroutine
+go func() {
+    if err := srv.Start(); err != nil {
+        log.Fatal(err)
+    }
+}()
+
+// Graceful shutdown
+ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+defer cancel()
+srv.Shutdown(ctx)
+```
+
+### Health Check Endpoint
+
+**Endpoint:** `GET /api/health`
+
+**Response (200 OK):**
+```json
+{
+  "status": "ok",
+  "database": "healthy",
+  "time": "2025-10-27T16:57:01Z"
+}
+```
+
+**Response (503 Service Unavailable):**
+```json
+{
+  "status": "degraded",
+  "database": "unhealthy",
+  "time": "2025-10-27T16:57:01Z",
+  "details": {
+    "database_error": "connection timeout"
+  }
+}
+```
+
+**Adding Service Routes:**
+
+Each service registers its routes via a setup function:
+```go
+// internal/api/health.go
+func SetupHealthRoutes(apiGroup *gin.RouterGroup, database *db.DB)
+
+// Future services follow same pattern:
+// func SetupMediaRoutes(apiGroup *gin.RouterGroup, repos *db.Repositories)
+// func SetupChannelRoutes(apiGroup *gin.RouterGroup, repos *db.Repositories)
+```
+
 ## Best Practices
 
 1. Initialize logger once at application startup
@@ -526,4 +618,6 @@ StreamSession uses `sync.RWMutex` for concurrent access protection. Always use p
 3. Always end with `.Msg()` to output the log
 4. Use JSON format in production for machine parsing
 5. Use pretty format in development for readability
+6. Each service should provide a `Setup*Routes()` function for route registration
+7. Keep routes co-located with handlers for better maintainability
 
