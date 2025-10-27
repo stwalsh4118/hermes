@@ -1,0 +1,135 @@
+# Hermes Virtual TV Channel Service - Configuration File
+# Copy this file to config.yaml and customize for your environment
+#
+# All settings can also be set via environment variables with the HERMES_ prefix
+# Example: HERMES_SERVER_PORT=9090 overrides server.port
+#
+# Priority order (highest to lowest):
+# 1. Environment variables (HERMES_*)
+# 2. .env file (in api/ directory)
+# 3. config.yaml file
+# 4. Default values
+#
+# ⚠️  SECURITY: Never put secrets (API keys, passwords, tokens) in this file!
+#    - For development: Use .env file (gitignored)
+#    - For production: Use environment variables set by your deployment system
+
+# ============================================================================
+# Server Configuration
+# ============================================================================
+server:
+  # Port for the HTTP server to listen on
+  # Environment variable: HERMES_SERVER_PORT
+  # Default: 8080
+  port: 8080
+
+  # Host address to bind the server to
+  # Use "0.0.0.0" to listen on all interfaces
+  # Use "127.0.0.1" for localhost only
+  # Environment variable: HERMES_SERVER_HOST
+  # Default: "0.0.0.0"
+  host: "0.0.0.0"
+
+  # Maximum duration for reading the entire request (including body)
+  # Format: duration string (e.g., "30s", "1m", "1h")
+  # Environment variable: HERMES_SERVER_READTIMEOUT
+  # Default: 30s
+  readtimeout: 30s
+
+  # Maximum duration before timing out writes of the response
+  # Environment variable: HERMES_SERVER_WRITETIMEOUT
+  # Default: 30s
+  writetimeout: 30s
+
+# ============================================================================
+# Database Configuration
+# ============================================================================
+database:
+  # Path to the SQLite database file
+  # The directory will be created if it doesn't exist
+  # Environment variable: HERMES_DATABASE_PATH
+  # Default: "./data/hermes.db"
+  path: "./data/hermes.db"
+
+  # Enable Write-Ahead Logging (WAL) mode for better concurrency
+  # Recommended: true for production
+  # Environment variable: HERMES_DATABASE_ENABLEWAL
+  # Default: true
+  enablewal: true
+
+  # Connection timeout (optional, not yet implemented)
+  # Environment variable: HERMES_DATABASE_CONNECTIONTIMEOUT
+  # connectiontimeout: 5s
+
+# ============================================================================
+# Logging Configuration
+# ============================================================================
+logging:
+  # Log level: debug, info, warn, error
+  # - debug: Detailed diagnostic information
+  # - info: General informational messages
+  # - warn: Warning messages
+  # - error: Error messages only
+  # Environment variable: HERMES_LOGGING_LEVEL
+  # Default: "info"
+  level: "info"
+
+  # Pretty print logs for human readability
+  # true: Console-friendly colored output (recommended for development)
+  # false: JSON structured logs (recommended for production)
+  # Environment variable: HERMES_LOGGING_PRETTY
+  # Default: false
+  pretty: false
+
+# ============================================================================
+# Media Configuration
+# ============================================================================
+media:
+  # Path to the root directory containing media files
+  # This will be scanned for video files to populate the media library
+  # Environment variable: HERMES_MEDIA_LIBRARYPATH
+  # Required: Must be set before media scanning features are used
+  # librarypath: "/path/to/media/library"
+
+  # Supported video file formats
+  # Environment variable: HERMES_MEDIA_SUPPORTEDFORMATS (comma-separated)
+  # Default: ["mp4", "mkv", "avi", "mov"]
+  supportedformats:
+    - mp4
+    - mkv
+    - avi
+    - mov
+
+# ============================================================================
+# Example Configurations
+# ============================================================================
+
+# Development Configuration:
+# - Enable debug logging
+# - Use pretty console output
+# - Bind to localhost only
+#
+# server:
+#   port: 8080
+#   host: "127.0.0.1"
+# logging:
+#   level: "debug"
+#   pretty: true
+# database:
+#   path: "./data/hermes-dev.db"
+
+# Production Configuration:
+# - Use info level logging
+# - JSON structured logs
+# - Listen on all interfaces
+# - Use environment variables for sensitive values
+#
+# server:
+#   port: 8080
+#   host: "0.0.0.0"
+# logging:
+#   level: "info"
+#   pretty: false
+# database:
+#   path: "/var/lib/hermes/hermes.db"
+
