@@ -93,10 +93,9 @@ func (h *MediaHandler) TriggerScan(c *gin.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
-	defer cancel()
-
-	scanID, err := h.scanner.StartScan(ctx, req.Path)
+	// Use background context for long-running scan operation
+	// The scan runs asynchronously and should not be tied to the HTTP request lifecycle
+	scanID, err := h.scanner.StartScan(context.Background(), req.Path)
 	if err != nil {
 		logger.Log.Error().
 			Err(err).
