@@ -4,7 +4,7 @@ Last Updated: 2025-10-27
 
 ## Status
 
-In Progress - PBI 2 implementation underway. FFprobe integration and filename parser completed.
+In Progress - PBI 2 implementation underway. Scanner, FFprobe, parser, and validator completed.
 
 ## Utility Functions
 
@@ -122,6 +122,63 @@ if !result.Readable {
     fmt.Println("File not accessible:", result.Reasons)
 }
 ```
+
+### Media Scanner
+
+Location: `internal/media/scanner.go`
+
+```go
+func NewScanner(repos *db.Repositories) *Scanner
+func (s *Scanner) StartScan(ctx context.Context, dirPath string) (string, error)
+func (s *Scanner) GetScanProgress(scanID string) (*ScanProgress, error)
+func (s *Scanner) CancelScan(scanID string) error
+func (s *Scanner) Stop() // Graceful shutdown
+```
+
+**ScanProgress:**
+```go
+type ScanProgress struct {
+    ScanID         string     `json:"scan_id"`
+    Status         ScanStatus `json:"status"` // running, completed, cancelled, failed
+    TotalFiles     int        `json:"total_files"`
+    ProcessedFiles int        `json:"processed_files"`
+    SuccessCount   int        `json:"success_count"`
+    FailedCount    int        `json:"failed_count"`
+    CurrentFile    string     `json:"current_file"`
+    StartTime      time.Time  `json:"start_time"`
+    EndTime        *time.Time `json:"end_time,omitempty"`
+    Errors         []string   `json:"errors,omitempty"`
+}
+```
+
+**Features:**
+- Async directory scanning with progress tracking
+- Integrates FFprobe, parser, and validator
+- Thread-safe with `sync.RWMutex`
+- Context-based cancellation support
+- Auto-cleanup of old scans (1 hour retention)
+- Prevents concurrent scans (atomic check-and-insert)
+- Optimistic upsert to database (no TOCTOU races)
+
+**Usage:**
+```go
+scanner := media.NewScanner(repos)
+defer scanner.Stop()
+
+// Start scan
+scanID, err := scanner.StartScan(ctx, "/media/videos")
+
+// Check progress
+progress, err := scanner.GetScanProgress(scanID)
+
+// Cancel if needed
+err := scanner.CancelScan(scanID)
+```
+
+**Errors:**
+- `ErrScanNotFound` - Scan ID not found
+- `ErrScanAlreadyRunning` - Another scan is running
+- `ErrInvalidDirectory` - Directory invalid/not accessible
 
 ## REST Endpoints
 
