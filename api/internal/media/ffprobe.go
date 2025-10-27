@@ -112,7 +112,8 @@ func ProbeFile(ctx context.Context, filePath string) (*VideoMetadata, error) {
 		}
 
 		// Check if it's a file not found error
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			stderr := string(exitErr.Stderr)
 			logger.Log.Error().
 				Str("file_path", filePath).
@@ -129,7 +130,7 @@ func ProbeFile(ctx context.Context, filePath string) (*VideoMetadata, error) {
 			Err(err).
 			Str("file_path", filePath).
 			Msg("FFprobe command failed")
-		return nil, fmt.Errorf("%w: %v", ErrFileNotFound, err)
+		return nil, fmt.Errorf("%w: %w", ErrFileNotFound, err)
 	}
 
 	// Parse JSON output
@@ -169,6 +170,27 @@ func extractMetadata(result *FFprobeResult) (*VideoMetadata, error) {
 	metadata := &VideoMetadata{}
 
 	// Find video and audio streams
+	videoStream, audioStream := findStreams(result)
+
+	// Extract codec and resolution information
+	extractCodecInfo(metadata, videoStream, audioStream)
+
+	// Extract duration
+	extractDuration(metadata, videoStream, result)
+
+	// Extract file size
+	extractFileSize(metadata, result)
+
+	// Validate we got at least duration
+	if metadata.Duration == 0 {
+		return nil, fmt.Errorf("%w: could not determine video duration", ErrInvalidFile)
+	}
+
+	return metadata, nil
+}
+
+// findStreams locates the first video and audio streams in the FFprobe result
+func findStreams(result *FFprobeResult) (*Stream, *Stream) {
 	var videoStream *Stream
 	var audioStream *Stream
 
@@ -182,6 +204,11 @@ func extractMetadata(result *FFprobeResult) (*VideoMetadata, error) {
 		}
 	}
 
+	return videoStream, audioStream
+}
+
+// extractCodecInfo extracts codec and resolution information from streams
+func extractCodecInfo(metadata *VideoMetadata, videoStream, audioStream *Stream) {
 	// Extract video metadata
 	if videoStream != nil {
 		metadata.VideoCodec = videoStream.CodecName
@@ -196,38 +223,31 @@ func extractMetadata(result *FFprobeResult) (*VideoMetadata, error) {
 	if audioStream != nil {
 		metadata.AudioCodec = audioStream.CodecName
 	}
+}
 
-	// Extract duration (try stream first, then format)
-	var durationFloat float64
-	var err error
-
+// extractDuration extracts duration from video stream or format metadata
+func extractDuration(metadata *VideoMetadata, videoStream *Stream, result *FFprobeResult) {
+	// Try stream duration first
 	if videoStream != nil && videoStream.Duration != "" {
-		durationFloat, err = strconv.ParseFloat(videoStream.Duration, 64)
-		if err == nil {
+		if durationFloat, err := strconv.ParseFloat(videoStream.Duration, 64); err == nil {
 			metadata.Duration = int64(durationFloat)
+			return
 		}
 	}
 
-	// Fall back to format duration if stream duration not available
-	if metadata.Duration == 0 && result.Format.Duration != "" {
-		durationFloat, err = strconv.ParseFloat(result.Format.Duration, 64)
-		if err == nil {
+	// Fall back to format duration
+	if result.Format.Duration != "" {
+		if durationFloat, err := strconv.ParseFloat(result.Format.Duration, 64); err == nil {
 			metadata.Duration = int64(durationFloat)
 		}
 	}
+}
 
-	// Extract file size
+// extractFileSize extracts file size from format metadata
+func extractFileSize(metadata *VideoMetadata, result *FFprobeResult) {
 	if result.Format.Size != "" {
-		fileSize, err := strconv.ParseInt(result.Format.Size, 10, 64)
-		if err == nil {
+		if fileSize, err := strconv.ParseInt(result.Format.Size, 10, 64); err == nil {
 			metadata.FileSize = fileSize
 		}
 	}
-
-	// Validate we got at least duration
-	if metadata.Duration == 0 {
-		return nil, fmt.Errorf("%w: could not determine video duration", ErrInvalidFile)
-	}
-
-	return metadata, nil
 }

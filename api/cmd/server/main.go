@@ -102,12 +102,14 @@ func main() {
 
 		// Give outstanding requests time to complete
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
 
 		if err := srv.Shutdown(ctx); err != nil {
 			logger.Log.Error().Err(err).Msg("Graceful shutdown failed")
-			os.Exit(1)
+			cancel()
+			database.Close()
+			os.Exit(1) //nolint:gocritic // database.Close() called explicitly before exit
 		}
+		cancel()
 	}
 
 	logger.Log.Info().Msg("Server stopped successfully")

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -60,7 +61,8 @@ type MediaConfig struct {
 // Load reads configuration from .env file, config files, environment variables, and defaults
 func Load() (*Config, error) {
 	// Load .env file if present (optional, won't error if missing)
-	_ = godotenv.Load()
+	// .env files are optional in production and CI where env vars are set directly
+	_ = godotenv.Load() // nolint:errcheck // .env file is optional
 
 	v := viper.New()
 
@@ -81,7 +83,8 @@ func Load() (*Config, error) {
 
 	// Read config file (optional)
 	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+		if !errors.As(err, &configFileNotFoundError) {
 			return nil, fmt.Errorf("error reading config: %w", err)
 		}
 		// Config file not found is OK, we'll use defaults and env vars
