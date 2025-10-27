@@ -74,6 +74,55 @@ result := media.ParseFilename("/media/Friends.S01E05.mp4")
 // Title: "Friends - S01E05"
 ```
 
+### Media Validator
+
+Location: `internal/media/validator.go`
+
+```go
+func ValidateMedia(metadata *VideoMetadata) ValidationResult
+func ValidateFile(filePath string) ValidationResult
+```
+
+**ValidationResult:**
+```go
+type ValidationResult struct {
+    Compatible        bool     // true if H.264 + AAC (no transcode needed)
+    RequiresTranscode bool     // true if transcoding required
+    Reasons           []string // Human-readable incompatibility reasons
+    Readable          bool     // File exists and is accessible
+}
+```
+
+**Codec Compatibility Rules:**
+- **Compatible** (no transcode): H.264 video + AAC audio
+- **Requires transcode**: Any other codec combination
+- Case-insensitive codec matching
+- Generates specific reasons for each incompatibility
+
+**Common Compatible Codecs:**
+- Video: `h264` (also known as AVC, MPEG-4 Part 10)
+- Audio: `aac` (Advanced Audio Coding)
+
+**Common Incompatible Codecs:**
+- Video: `hevc`, `vp9`, `av1`, `mpeg2`, `mpeg4`
+- Audio: `flac`, `dts`, `opus`, `mp3`, `vorbis`
+
+**Usage:**
+```go
+// Validate codec compatibility from metadata
+metadata, _ := media.ProbeFile(ctx, "/path/to/video.mp4")
+result := media.ValidateMedia(metadata)
+if result.RequiresTranscode {
+    fmt.Println("Transcoding required:", result.Reasons)
+}
+
+// Check file accessibility
+result := media.ValidateFile("/path/to/video.mp4")
+if !result.Readable {
+    fmt.Println("File not accessible:", result.Reasons)
+}
+```
+
 ## REST Endpoints
 
 To be defined.
