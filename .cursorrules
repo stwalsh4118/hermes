@@ -613,7 +613,24 @@ Each API spec file must include the following sections as applicable:
 - Consult specs to determine if functionality already exists before creating new implementations
 - If similar functionality exists, reuse or extend rather than recreate
 
-## 6.7 API Specification Template Example
+## 6.7 Infrastructure Components and Reusable Code
+
+> Rationale: Ensures infrastructure components and foundational code are documented and reused, not recreated.
+
+- **Infrastructure Scope**: Internal packages that provide cross-cutting concerns (logging, configuration, middleware, database connections, etc.) are considered infrastructure
+- **Documentation Requirement**: All infrastructure components MUST be documented in `docs/api-specs/infrastructure/infrastructure-api.md`
+- **Reuse Mandate**: ALWAYS check `docs/api-specs/infrastructure/` before implementing any infrastructure functionality
+- **Examples of Infrastructure**:
+  - Logging systems (e.g., zerolog logger package)
+  - Configuration management
+  - Database connection pooling
+  - HTTP middleware (authentication, CORS, request logging)
+  - Error handling utilities
+  - Common validation functions
+- **Rule**: If infrastructure exists, ALWAYS import and use it. NEVER recreate similar functionality
+- **Updates**: When tasks create or modify infrastructure components, update `docs/api-specs/infrastructure/infrastructure-api.md`
+
+## 6.8 API Specification Template Example
 
 > Rationale: Provides a concrete example of the expected format for API specifications.
 
