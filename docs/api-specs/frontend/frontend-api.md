@@ -1,6 +1,6 @@
 # Frontend Infrastructure API
 
-Last Updated: 2025-10-27 (Zustand stores added)
+Last Updated: 2025-10-28 (Layout components and routing added)
 
 ## Utilities
 
@@ -71,6 +71,62 @@ import { toast } from "sonner";
 toast.success("Success message");
 toast.error("Error message");
 toast.info("Info message", { description: "Additional details" });
+```
+
+## Layout Components
+
+### MainLayout
+
+Location: `web/components/layout/main-layout.tsx`
+
+Reusable wrapper providing consistent padding and responsive container for all pages.
+
+**Props:**
+```typescript
+interface MainLayoutProps {
+  children: React.ReactNode;
+  className?: string;
+}
+```
+
+**Usage:**
+```typescript
+import { MainLayout } from "@/components/layout/main-layout";
+
+export default function MyPage() {
+  return (
+    <MainLayout>
+      <h1>Page Content</h1>
+    </MainLayout>
+  );
+}
+```
+
+### PageHeader
+
+Location: `web/components/layout/page-header.tsx`
+
+Reusable page header with title, optional description, and action buttons slot.
+
+**Props:**
+```typescript
+interface PageHeaderProps {
+  title: string;
+  description?: string;
+  actions?: React.ReactNode;
+}
+```
+
+**Usage:**
+```typescript
+import { PageHeader } from "@/components/layout/page-header";
+import { Button } from "@/components/ui/button";
+
+<PageHeader
+  title="Channels"
+  description="Manage your virtual TV channels"
+  actions={<Button>New Channel</Button>}
+/>
 ```
 
 ## Theming
@@ -599,6 +655,36 @@ function MyComponent() {
   const isMobile = useMobile();
   
   return isMobile ? <MobileView /> : <DesktopView />;
+}
+```
+
+## Routing Structure
+
+Next.js 15 App Router with file-system based routing.
+
+**Route Map:**
+- `/` - Home/Dashboard
+- `/channels` - Channel list
+- `/channels/[id]` - Channel player (dynamic)
+- `/channels/[id]/edit` - Edit channel (nested dynamic)
+- `/channels/new` - Create new channel
+- `/library` - Media library
+- `/settings` - Settings
+
+**Special Files:**
+- `app/not-found.tsx` - 404 error page
+- `app/loading.tsx` - Root loading state
+- `app/channels/loading.tsx` - Channels loading state
+
+**Dynamic Routes:**
+```typescript
+// Access route params in page component
+export default function ChannelPlayerPage({
+  params,
+}: {
+  params: { id: string };
+}) {
+  // Use params.id
 }
 ```
 
