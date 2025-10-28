@@ -18,13 +18,14 @@ import (
 
 // Server represents the HTTP server
 type Server struct {
-	config         *config.Config
-	db             *db.DB
-	repos          *db.Repositories
-	scanner        *media.Scanner
-	channelService *channel.ChannelService
-	router         *gin.Engine
-	server         *http.Server
+	config          *config.Config
+	db              *db.DB
+	repos           *db.Repositories
+	scanner         *media.Scanner
+	channelService  *channel.ChannelService
+	playlistService *channel.PlaylistService
+	router          *gin.Engine
+	server          *http.Server
 }
 
 // New creates a new server instance
@@ -32,13 +33,15 @@ func New(cfg *config.Config, database *db.DB) *Server {
 	repos := db.NewRepositories(database)
 	scanner := media.NewScanner(repos)
 	channelService := channel.NewChannelService(repos)
+	playlistService := channel.NewPlaylistService(database, repos)
 
 	return &Server{
-		config:         cfg,
-		db:             database,
-		repos:          repos,
-		scanner:        scanner,
-		channelService: channelService,
+		config:          cfg,
+		db:              database,
+		repos:           repos,
+		scanner:         scanner,
+		channelService:  channelService,
+		playlistService: playlistService,
 	}
 }
 
@@ -65,7 +68,7 @@ func (s *Server) setupRouter() {
 	// Register service routes
 	api.SetupHealthRoutes(apiGroup, s.db)
 	api.SetupMediaRoutes(apiGroup, s.scanner, s.repos)
-	api.SetupChannelRoutes(apiGroup, s.channelService)
+	api.SetupChannelRoutes(apiGroup, s.channelService, s.playlistService)
 }
 
 // Start starts the HTTP server

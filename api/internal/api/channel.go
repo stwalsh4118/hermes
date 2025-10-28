@@ -3,12 +3,14 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stwalsh4118/hermes/internal/channel"
+	"github.com/stwalsh4118/hermes/internal/db"
 	"github.com/stwalsh4118/hermes/internal/logger"
 	"github.com/stwalsh4118/hermes/internal/models"
 )
@@ -47,15 +49,52 @@ type ChannelListResponse struct {
 	Channels []*ChannelResponse `json:"channels"`
 }
 
+// Playlist DTOs
+
+// AddToPlaylistRequest represents a request to add media to a playlist
+type AddToPlaylistRequest struct {
+	MediaID  string `json:"media_id" binding:"required"`
+	Position int    `json:"position" binding:"gte=0"`
+}
+
+// ReorderPlaylistRequest represents a request to reorder playlist items
+type ReorderPlaylistRequest struct {
+	Items []ReorderItem `json:"items" binding:"required,min=1"`
+}
+
+// ReorderItem represents an item position in reorder request
+type ReorderItem struct {
+	ItemID   string `json:"item_id" binding:"required"`
+	Position int    `json:"position" binding:"gte=0"`
+}
+
+// PlaylistItemResponse represents a playlist item with embedded media details
+type PlaylistItemResponse struct {
+	ID        string        `json:"id"`
+	ChannelID string        `json:"channel_id"`
+	MediaID   string        `json:"media_id"`
+	Position  int           `json:"position"`
+	CreatedAt time.Time     `json:"created_at"`
+	Media     *models.Media `json:"media,omitempty"`
+}
+
+// PlaylistResponse represents a channel's playlist
+type PlaylistResponse struct {
+	Items         []*PlaylistItemResponse `json:"items"`
+	TotalDuration int64                   `json:"total_duration_seconds"`
+}
+
 // ChannelHandler handles channel-related API requests
 type ChannelHandler struct {
-	channelService *channel.ChannelService
+	channelService  *channel.ChannelService
+	playlistService *channel.PlaylistService
 }
 
 // NewChannelHandler creates a new channel handler instance
-func NewChannelHandler(channelService *channel.ChannelService) *ChannelHandler {
+func NewChannelHandler(channelService *channel.ChannelService, playlistService *channel.PlaylistService) *ChannelHandler {
 	return &ChannelHandler{
-		channelService: channelService,
+		channelService:  channelService,
+		playlistService: playlistService,
 	}
 }
 
@@ -69,6 +108,18 @@ func toChannelResponse(ch *models.Channel) *ChannelResponse {
 		Loop:      ch.Loop,
 		CreatedAt: ch.CreatedAt,
 		UpdatedAt: ch.UpdatedAt,
+	}
+}
+
+// toPlaylistItemResponse converts a playlist item model to API response format
+func toPlaylistItemResponse(item *models.PlaylistItem) *PlaylistItemResponse {
+	return &PlaylistItemResponse{
+		ID:        item.ID.String(),
+		ChannelID: item.ChannelID.String(),
+		MediaID:   item.MediaID.String(),
+		Position:  item.Position,
+		CreatedAt: item.CreatedAt,
+		Media:     item.Media,
 	}
 }
 
@@ -397,9 +448,321 @@ func (h *ChannelHandler) GetCurrentProgram(c *gin.Context) {
 	})
 }
 
+// GetPlaylist handles GET /api/channels/:id/playlist
+func (h *ChannelHandler) GetPlaylist(c *gin.Context) {
+	idStr := c.Param("id")
+
+	// Validate UUID
+	channelID, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "invalid_id",
+			Message: "Invalid channel ID format",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	// Verify channel exists
+	_, err = h.channelService.GetByID(ctx, channelID)
+	if err != nil {
+		if errors.Is(err, channel.ErrChannelNotFound) {
+			c.JSON(http.StatusNotFound, ErrorResponse{
+				Error:   "not_found",
+				Message: "Channel not found",
+			})
+			return
+		}
+
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelID.String()).
+			Msg("Failed to verify channel existence")
+
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   "query_failed",
+			Message: "Failed to retrieve channel",
+		})
+		return
+	}
+
+	// Get playlist items
+	items, err := h.playlistService.GetPlaylist(ctx, channelID)
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelID.String()).
+			Msg("Failed to get playlist")
+
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   "query_failed",
+			Message: "Failed to retrieve playlist",
+		})
+		return
+	}
+
+	// Calculate total duration
+	duration, err := h.playlistService.CalculateDuration(ctx, channelID)
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelID.String()).
+			Msg("Failed to calculate playlist duration")
+		// Continue with 0 duration instead of failing
+		duration = 0
+	}
+
+	// Convert to response format
+	responses := make([]*PlaylistItemResponse, len(items))
+	for i, item := range items {
+		responses[i] = toPlaylistItemResponse(item)
+	}
+
+	c.JSON(http.StatusOK, PlaylistResponse{
+		Items:         responses,
+		TotalDuration: duration,
+	})
+}
+
+// AddToPlaylist handles POST /api/channels/:id/playlist
+func (h *ChannelHandler) AddToPlaylist(c *gin.Context) {
+	idStr := c.Param("id")
+
+	// Validate channel UUID
+	channelID, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "invalid_id",
+			Message: "Invalid channel ID format",
+		})
+		return
+	}
+
+	var req AddToPlaylistRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Invalid request body: " + err.Error(),
+		})
+		return
+	}
+
+	// Validate media UUID
+	mediaID, err := uuid.Parse(req.MediaID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "invalid_media_id",
+			Message: "Invalid media ID format",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	// Add to playlist via service
+	item, err := h.playlistService.AddToPlaylist(ctx, channelID, mediaID, req.Position)
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelID.String()).
+			Str("media_id", mediaID.String()).
+			Int("position", req.Position).
+			Msg("Failed to add media to playlist")
+
+		if errors.Is(err, channel.ErrChannelNotFound) {
+			c.JSON(http.StatusNotFound, ErrorResponse{
+				Error:   "channel_not_found",
+				Message: "Channel not found",
+			})
+			return
+		}
+
+		if errors.Is(err, channel.ErrMediaNotFound) {
+			c.JSON(http.StatusNotFound, ErrorResponse{
+				Error:   "media_not_found",
+				Message: "Media not found",
+			})
+			return
+		}
+
+		if errors.Is(err, channel.ErrInvalidPosition) {
+			c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error:   "invalid_position",
+				Message: "Position must be non-negative",
+			})
+			return
+		}
+
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   "add_failed",
+			Message: "Failed to add media to playlist",
+		})
+		return
+	}
+
+	logger.Log.Info().
+		Str("channel_id", channelID.String()).
+		Str("media_id", mediaID.String()).
+		Str("item_id", item.ID.String()).
+		Int("position", req.Position).
+		Msg("Media added to playlist successfully")
+
+	c.JSON(http.StatusCreated, toPlaylistItemResponse(item))
+}
+
+// RemoveFromPlaylist handles DELETE /api/channels/:id/playlist/:item_id
+func (h *ChannelHandler) RemoveFromPlaylist(c *gin.Context) {
+	channelIDStr := c.Param("id")
+	itemIDStr := c.Param("item_id")
+
+	// Validate channel UUID
+	channelID, err := uuid.Parse(channelIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "invalid_id",
+			Message: "Invalid channel ID format",
+		})
+		return
+	}
+
+	// Validate item UUID
+	itemID, err := uuid.Parse(itemIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "invalid_item_id",
+			Message: "Invalid item ID format",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	// Remove from playlist via service
+	err = h.playlistService.RemoveFromPlaylist(ctx, itemID)
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelID.String()).
+			Str("item_id", itemID.String()).
+			Msg("Failed to remove item from playlist")
+
+		if errors.Is(err, channel.ErrPlaylistItemNotFound) {
+			c.JSON(http.StatusNotFound, ErrorResponse{
+				Error:   "not_found",
+				Message: "Playlist item not found",
+			})
+			return
+		}
+
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   "remove_failed",
+			Message: "Failed to remove item from playlist",
+		})
+		return
+	}
+
+	logger.Log.Info().
+		Str("channel_id", channelID.String()).
+		Str("item_id", itemID.String()).
+		Msg("Item removed from playlist successfully")
+
+	c.JSON(http.StatusOK, DeleteResponse{
+		Message: "Playlist item removed successfully",
+	})
+}
+
+// ReorderPlaylist handles PUT /api/channels/:id/playlist/reorder
+func (h *ChannelHandler) ReorderPlaylist(c *gin.Context) {
+	idStr := c.Param("id")
+
+	// Validate channel UUID
+	channelID, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "invalid_id",
+			Message: "Invalid channel ID format",
+		})
+		return
+	}
+
+	var req ReorderPlaylistRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Invalid request body: " + err.Error(),
+		})
+		return
+	}
+
+	// Convert API DTOs to db.ReorderItem
+	reorderItems := make([]db.ReorderItem, len(req.Items))
+	for i, item := range req.Items {
+		itemID, err := uuid.Parse(item.ItemID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error:   "invalid_item_id",
+				Message: fmt.Sprintf("Invalid item ID format at index %d", i),
+			})
+			return
+		}
+		reorderItems[i] = db.ReorderItem{
+			ID:       itemID,
+			Position: item.Position,
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	// Reorder playlist via service
+	err = h.playlistService.ReorderPlaylist(ctx, channelID, reorderItems)
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelID.String()).
+			Int("item_count", len(reorderItems)).
+			Msg("Failed to reorder playlist")
+
+		if errors.Is(err, channel.ErrPlaylistItemNotFound) {
+			c.JSON(http.StatusNotFound, ErrorResponse{
+				Error:   "not_found",
+				Message: "One or more playlist items not found",
+			})
+			return
+		}
+
+		if errors.Is(err, channel.ErrInvalidPosition) {
+			c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error:   "invalid_position",
+				Message: "Invalid position values provided",
+			})
+			return
+		}
+
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   "reorder_failed",
+			Message: "Failed to reorder playlist",
+		})
+		return
+	}
+
+	logger.Log.Info().
+		Str("channel_id", channelID.String()).
+		Int("item_count", len(reorderItems)).
+		Msg("Playlist reordered successfully")
+
+	c.JSON(http.StatusOK, DeleteResponse{
+		Message: "Playlist reordered successfully",
+	})
+}
+
 // SetupChannelRoutes registers channel-related routes
-func SetupChannelRoutes(apiGroup *gin.RouterGroup, channelService *channel.ChannelService) {
-	handler := NewChannelHandler(channelService)
+func SetupChannelRoutes(apiGroup *gin.RouterGroup, channelService *channel.ChannelService, playlistService *channel.PlaylistService) {
+	handler := NewChannelHandler(channelService, playlistService)
 
 	// Channel CRUD endpoints
 	apiGroup.POST("/channels", handler.CreateChannel)
@@ -410,4 +773,10 @@ func SetupChannelRoutes(apiGroup *gin.RouterGroup, channelService *channel.Chann
 
 	// Current program placeholder (PBI 4)
 	apiGroup.GET("/channels/:id/current", handler.GetCurrentProgram)
+
+	// Playlist endpoints
+	apiGroup.GET("/channels/:id/playlist", handler.GetPlaylist)
+	apiGroup.POST("/channels/:id/playlist", handler.AddToPlaylist)
+	apiGroup.DELETE("/channels/:id/playlist/:item_id", handler.RemoveFromPlaylist)
+	apiGroup.PUT("/channels/:id/playlist/reorder", handler.ReorderPlaylist)
 }
