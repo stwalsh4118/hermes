@@ -259,6 +259,7 @@ export const ChannelForm = memo(function ChannelForm({
         <div className="lg:col-span-2">
           <PlaylistEditor
             items={localPlaylist}
+            channelId={channel?.id || ""}
             onReorder={handlePlaylistReorder}
             onAdd={handleAddToPlaylist}
             onRemove={handleRemoveFromPlaylist}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   DndContext,
   closestCenter,
@@ -20,12 +20,14 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PlaylistItem, Media } from "@/lib/types/api";
+import { PlaylistItem, Media, AddToPlaylistRequest } from "@/lib/types/api";
 import { GripVertical, X } from "lucide-react";
 import { MediaBrowser } from "./media-browser";
+import { useBulkAddToPlaylist } from "@/hooks/use-playlist";
 
 interface PlaylistEditorProps {
   items: PlaylistItem[];
+  channelId: string;
   onReorder: (items: PlaylistItem[]) => void;
   onAdd: (media: Media, position: number) => void;
   onRemove: (itemId: string) => void;
@@ -140,8 +142,9 @@ function SortableItem({ item, onRemove }: SortableItemProps) {
   );
 }
 
-export function PlaylistEditor({ items, onReorder, onAdd, onRemove }: PlaylistEditorProps) {
+export function PlaylistEditor({ items, channelId, onReorder, onAdd, onRemove }: PlaylistEditorProps) {
   const [mediaBrowserOpen, setMediaBrowserOpen] = useState(false);
+  const bulkAddMutation = useBulkAddToPlaylist();
   
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -162,11 +165,32 @@ export function PlaylistEditor({ items, onReorder, onAdd, onRemove }: PlaylistEd
     }
   };
 
-  const handleSelectMedia = (media: Media) => {
-    // Add to end of playlist
-    onAdd(media, items.length);
-    setMediaBrowserOpen(false);
-  };
+  const handleBulkAdd = useCallback(async (mediaItems: Media[]) => {
+    if (mediaItems.length === 0) return;
+
+    // Single source of truth for bulk adds:
+    // - Edit mode (channelId exists): Use bulk API mutation for efficiency
+    // - Create mode (no channelId): Update local state only via onAdd
+    if (channelId) {
+      // Edit mode: Use efficient bulk API call
+      const bulkItems: AddToPlaylistRequest[] = mediaItems.map((media, idx) => ({
+        media_id: media.id,
+        position: items.length + idx,
+      }));
+
+      try {
+        await bulkAddMutation.mutateAsync({ channelId, items: bulkItems });
+        // Mutation hook handles cache invalidation, no need to call onAdd
+      } catch (error) {
+        console.error("Bulk add failed:", error);
+      }
+    } else {
+      // Create mode: Update local state via onAdd callbacks
+      mediaItems.forEach((media, idx) => {
+        onAdd(media, items.length + idx);
+      });
+    }
+  }, [channelId, items.length, bulkAddMutation, onAdd]);
 
   const totalDuration = items.reduce((sum, item) => {
     return sum + (item.media?.duration || 0);
@@ -247,8 +271,9 @@ export function PlaylistEditor({ items, onReorder, onAdd, onRemove }: PlaylistEd
       <MediaBrowser
         open={mediaBrowserOpen}
         onOpenChange={setMediaBrowserOpen}
-        onSelectMedia={handleSelectMedia}
+        onBulkAdd={handleBulkAdd}
         playlistMediaIds={playlistMediaIds}
+        isSubmitting={bulkAddMutation.isPending}
       />
     </>
   );
