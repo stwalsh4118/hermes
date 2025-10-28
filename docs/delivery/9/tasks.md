@@ -8,7 +8,7 @@ This document lists all tasks associated with PBI 9.
 
 | Task ID | Name | Status | Description |
 | :------ | :--------------------------------------- | :------- | :--------------------------------- |
-| 9-1 | [Create Media Hierarchy Tree Component](./9-1.md) | Proposed | Build reusable tree view for Show > Season > Episode hierarchy with selection |
+| 9-1 | [Create Media Hierarchy Tree Component](./9-1.md) | Done | Build reusable tree view for Show > Season > Episode hierarchy with selection |
 | 9-2 | [Rebuild Media Browser with Tree View and Bulk Selection](./9-2.md) | Proposed | Complete rewrite of media browser to support tree view and bulk operations |
 | 9-3 | [Build Library Scanner Component](./9-3.md) | Proposed | Create UI for triggering scans and monitoring progress in real-time |
 | 9-4 | [Create Media Library Page with Tree View](./9-4.md) | Proposed | Build main library page with tree view, search, and filters |

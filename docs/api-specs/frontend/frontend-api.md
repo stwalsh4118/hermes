@@ -1,6 +1,6 @@
 # Frontend Infrastructure API
 
-Last Updated: 2025-10-28 (Metadata utility and SEO configuration added)
+Last Updated: 2025-10-28 (Media tree component and hooks added)
 
 ## Utilities
 
@@ -1327,6 +1327,86 @@ Modal for browsing and selecting media to add to playlist. Props: `open`, `onOpe
 
 ### ChannelPreview
 Real-time preview showing "what's playing now" based on start time and playlist.
+
+## Media Components
+
+Location: `web/components/media/`
+
+### MediaTree
+
+Hierarchical tree view for media organized by Show > Season > Episode with virtual scrolling and keyboard navigation.
+
+**Props:**
+```typescript
+interface MediaTreeProps {
+  media: Media[];
+  searchQuery?: string;
+  isLoading?: boolean;
+  className?: string;
+  height?: number;
+  onSelectionChange?: (selectedMedia: Media[]) => void;
+}
+```
+
+**Features:**
+- Automatic grouping by show/season/episode
+- Checkbox selection with cascading (select parent = select all children)
+- Expand/collapse with state management
+- Virtual scrolling for 1000+ items (@tanstack/react-virtual)
+- Keyboard navigation (arrows, space, enter) with aria-activedescendant
+- Search highlighting with auto-expand
+- Loading and empty states
+
+**Usage:**
+```typescript
+import { MediaTree } from "@/components/media";
+
+<MediaTree
+  media={mediaItems}
+  searchQuery={searchTerm}
+  height={600}
+  onSelectionChange={(selected) => setSelected(selected)}
+/>
+```
+
+### useMediaTree Hook
+
+Location: `web/hooks/use-media-tree.ts`
+
+**Signature:**
+```typescript
+function useMediaTree(options: {
+  media: Media[];
+  searchQuery?: string;
+}): UseMediaTreeResult
+```
+
+**Returns:**
+- `tree`: Hierarchical MediaTreeNode[]
+- `flattenedNodes`: Flattened visible nodes for virtual scrolling
+- `toggleNode`, `selectNode`: Node manipulation
+- `getSelectedMedia`, `getSelectedIds`: Selection queries
+- `expandAll`, `collapseAll`, `clearSelection`, `selectAll`: Bulk operations
+
+**Tree Structure Types:**
+
+Location: `web/lib/types/media-tree.ts`
+
+```typescript
+interface MediaTreeNode {
+  id: string;
+  type: 'show' | 'season' | 'episode';
+  label: string;
+  children?: MediaTreeNode[];
+  media?: Media;
+  episodeCount?: number;
+  expanded: boolean;
+  selected: boolean;
+  indeterminate: boolean;
+  depth: number;
+  parentId?: string;
+}
+```
 
 ## Best Practices
 
