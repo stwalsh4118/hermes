@@ -1,6 +1,6 @@
 # Frontend Infrastructure API
 
-Last Updated: 2025-10-28 (Layout components and routing added)
+Last Updated: 2025-10-28 (Navigation and header components added)
 
 ## Utilities
 
@@ -128,6 +128,165 @@ import { Button } from "@/components/ui/button";
   actions={<Button>New Channel</Button>}
 />
 ```
+
+## Navigation Components
+
+### Navigation Configuration
+
+Location: `web/lib/config/navigation.ts`
+
+Centralized navigation items configuration used by Header and MobileMenu components.
+
+**Types:**
+```typescript
+interface NavItem {
+  title: string;
+  href: string;
+  icon: LucideIcon;
+  description?: string;
+}
+```
+
+**Available Navigation Items:**
+```typescript
+export const navItems: NavItem[] = [
+  { title: "Home", href: "/", icon: Home, description: "Dashboard and overview" },
+  { title: "Channels", href: "/channels", icon: Play, description: "Manage TV channels" },
+  { title: "Library", href: "/library", icon: Library, description: "Browse media files" },
+  { title: "Settings", href: "/settings", icon: Settings, description: "Configure preferences" },
+];
+```
+
+**Usage:**
+```typescript
+import { navItems } from "@/lib/config/navigation";
+
+// Iterate over navigation items
+navItems.map((item) => {
+  const Icon = item.icon;
+  return <Link href={item.href}><Icon /> {item.title}</Link>;
+});
+```
+
+### AppShell
+
+Location: `web/components/layout/app-shell.tsx`
+
+Top-level layout wrapper that provides the application shell including header and mobile menu.
+
+**Props:**
+```typescript
+interface AppShellProps {
+  children: React.ReactNode;
+}
+```
+
+**Usage:**
+```typescript
+import { AppShell } from "@/components/layout/app-shell";
+
+// Typically used in root layout (app/layout.tsx)
+<AppShell>
+  {children}
+</AppShell>
+```
+
+**Features:**
+- Sticky header at top
+- Flexible main content area
+- Mobile menu overlay
+- Responsive design (desktop/mobile)
+
+### Header
+
+Location: `web/components/layout/header.tsx`
+
+Main navigation header with logo, navigation links, theme toggle, and mobile menu button.
+
+**Usage:**
+```typescript
+import { Header } from "@/components/layout/header";
+
+// Used automatically via AppShell, but can be imported directly if needed
+<Header />
+```
+
+**Features:**
+- Sticky positioning with backdrop blur
+- Logo linking to home page
+- Desktop navigation (visible at md+ breakpoints)
+- Active route highlighting
+- Theme toggle button
+- Mobile menu button (visible below md breakpoint)
+- Integrates with Zustand `useUIStore` for mobile menu state
+
+**Active Route Logic:**
+- Root path `/` matches exactly
+- Other paths match if current path starts with the nav item path
+- Example: `/channels/123` highlights "Channels" nav item
+
+### MobileMenu
+
+Location: `web/components/layout/mobile-menu.tsx`
+
+Slide-in mobile navigation drawer with backdrop overlay.
+
+**Usage:**
+```typescript
+import { MobileMenu } from "@/components/layout/mobile-menu";
+
+// Used automatically via AppShell, but can be imported directly if needed
+<MobileMenu />
+```
+
+**Features:**
+- Slides in from right side
+- Backdrop overlay (click to close)
+- Close button in header
+- Navigation items with icons and descriptions
+- Active route highlighting
+- Auto-closes on route change
+- Prevents body scroll when open
+- Controlled by Zustand `useUIStore.mobileMenuOpen` state
+
+**State Management:**
+```typescript
+import { useUIStore } from "@/lib/stores";
+
+const { mobileMenuOpen, setMobileMenuOpen, toggleMobileMenu } = useUIStore();
+
+// Open menu
+setMobileMenuOpen(true);
+// Or toggle
+toggleMobileMenu();
+```
+
+### Navigation Utilities
+
+Location: `web/lib/utils/navigation.ts`
+
+Helper functions for navigation-related logic.
+
+**isActiveRoute() - Check if Route is Active:**
+```typescript
+function isActiveRoute(currentPath: string, itemPath: string): boolean
+```
+
+Determines if a navigation item should be highlighted as active.
+
+**Usage:**
+```typescript
+import { isActiveRoute } from "@/lib/utils/navigation";
+import { usePathname } from "next/navigation";
+
+const pathname = usePathname();
+const isActive = isActiveRoute(pathname, "/channels");
+```
+
+**Logic:**
+- Root path (`/`) matches exactly
+- Other paths match if current path starts with item path
+- Prevents false positives (e.g., `/settings` won't match `/set`)
 
 ## Theming
 
