@@ -8,6 +8,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/stwalsh4118/hermes/internal/api"
+	"github.com/stwalsh4118/hermes/internal/channel"
 	"github.com/stwalsh4118/hermes/internal/config"
 	"github.com/stwalsh4118/hermes/internal/db"
 	"github.com/stwalsh4118/hermes/internal/logger"
@@ -17,24 +18,27 @@ import (
 
 // Server represents the HTTP server
 type Server struct {
-	config  *config.Config
-	db      *db.DB
-	repos   *db.Repositories
-	scanner *media.Scanner
-	router  *gin.Engine
-	server  *http.Server
+	config         *config.Config
+	db             *db.DB
+	repos          *db.Repositories
+	scanner        *media.Scanner
+	channelService *channel.ChannelService
+	router         *gin.Engine
+	server         *http.Server
 }
 
 // New creates a new server instance
 func New(cfg *config.Config, database *db.DB) *Server {
 	repos := db.NewRepositories(database)
 	scanner := media.NewScanner(repos)
+	channelService := channel.NewChannelService(repos)
 
 	return &Server{
-		config:  cfg,
-		db:      database,
-		repos:   repos,
-		scanner: scanner,
+		config:         cfg,
+		db:             database,
+		repos:          repos,
+		scanner:        scanner,
+		channelService: channelService,
 	}
 }
 
@@ -61,6 +65,7 @@ func (s *Server) setupRouter() {
 	// Register service routes
 	api.SetupHealthRoutes(apiGroup, s.db)
 	api.SetupMediaRoutes(apiGroup, s.scanner, s.repos)
+	api.SetupChannelRoutes(apiGroup, s.channelService)
 }
 
 // Start starts the HTTP server
