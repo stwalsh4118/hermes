@@ -1,19 +1,17 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { ThemeProvider } from "@/components/providers/theme-provider";
+import { ThemeProvider } from "@/components/theme-provider";
 import { QueryProvider } from "@/components/providers/query-provider";
-import { AppShell } from "@/components/layout/app-shell";
 import { Toaster } from "@/components/ui/sonner";
 
-const inter = Inter({ subsets: ["latin"] });
+const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" });
 
 export const metadata: Metadata = {
-  title: {
-    default: "Hermes - Virtual TV Channel Service",
-    template: "%s | Hermes",
-  },
-  description: "Manage and stream your own virtual TV channels with Hermes. Organize your media library and broadcast continuous content streams.",
+  title: "Virtual TV - Your Personal Streaming Channels",
+  description: "Create and watch your own virtual TV channels with continuous broadcasts from your media library",
+  generator: "Hermes",
   keywords: ["tv channels", "streaming", "media server", "iptv", "virtual tv"],
   authors: [{ name: "Hermes Team" }],
   creator: "Hermes",
@@ -21,14 +19,14 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-    title: "Hermes - Virtual TV Channel Service",
-    description: "Manage and stream your own virtual TV channels",
-    siteName: "Hermes",
+    title: "Virtual TV - Your Personal Streaming Channels",
+    description: "Create and watch your own virtual TV channels",
+    siteName: "Virtual TV",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Hermes - Virtual TV Channel Service",
-    description: "Manage and stream your own virtual TV channels",
+    title: "Virtual TV - Your Personal Streaming Channels",
+    description: "Create and watch your own virtual TV channels",
   },
   robots: {
     index: true,
@@ -42,16 +40,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+    <html lang="en" className="dark retro sunset-vhs" suppressHydrationWarning>
+      <body className={`${geist.variable} ${geistMono.variable} font-sans antialiased`}>
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
-          enableSystem
+          defaultTheme="dark"
+          enableSystem={false}
           disableTransitionOnChange
         >
           <QueryProvider>
-            <AppShell>{children}</AppShell>
+            {children}
           </QueryProvider>
           <Toaster />
         </ThemeProvider>
