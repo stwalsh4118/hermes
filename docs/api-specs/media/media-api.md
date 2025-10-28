@@ -1,10 +1,19 @@
 # Media Service API
 
-Last Updated: 2025-10-27
+Last Updated: 2025-10-28
 
-## Status
+## Repository Methods
 
-In Progress - PBI 2 implementation underway. Scanner, FFprobe, parser, and validator completed.
+### MediaRepository (Go)
+
+Location: `internal/db/media.go`
+
+```go
+func (r *MediaRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Media, error)
+func (r *MediaRepository) ExistsByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]bool, error)
+```
+
+**ExistsByIDs** - Batch validation checking if multiple media IDs exist. Returns map[uuid.UUID]bool where true = exists. Used by bulk playlist operations to avoid N+1 queries.
 
 ## Utility Functions
 

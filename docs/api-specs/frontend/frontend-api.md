@@ -695,6 +695,13 @@ NEXT_PUBLIC_API_URL=http://localhost:8080
 - `apiClient.updateChannel(id, data)` → `Promise<Channel>`
 - `apiClient.deleteChannel(id)` → `Promise<MessageResponse>`
 
+**Playlist:**
+- `apiClient.getPlaylist(channelId)` → `Promise<PlaylistResponse>`
+- `apiClient.addToPlaylist(channelId, data)` → `Promise<PlaylistItem>`
+- `apiClient.bulkAddToPlaylist(channelId, items)` → `Promise<BulkAddResponse>`
+- `apiClient.removeFromPlaylist(channelId, itemId)` → `Promise<MessageResponse>`
+- `apiClient.reorderPlaylist(channelId, items)` → `Promise<MessageResponse>`
+
 **Media:**
 - `apiClient.getMedia(params?)` → `Promise<PaginatedMediaResponse>`
 - `apiClient.getMediaItem(id)` → `Promise<Media>`
@@ -764,6 +771,47 @@ channelKeys.detail(id)    // ["channels", "detail", id]
 - Automatic cache invalidation on mutations
 - Toast notifications on success/error
 - Type-safe request/response handling
+
+### Playlist Hooks
+
+Location: `web/hooks/use-playlist.ts`
+
+**Query Hook:**
+```typescript
+import { usePlaylist } from "@/hooks/use-playlist";
+
+const { data, isLoading, error } = usePlaylist(channelId);
+```
+
+**Mutation Hooks:**
+```typescript
+import {
+  useAddToPlaylist,
+  useRemoveFromPlaylist,
+  useReorderPlaylist,
+} from "@/hooks/use-playlist";
+
+// Add to playlist
+const addMutation = useAddToPlaylist();
+addMutation.mutate({ channelId, data: { media_id, position } });
+
+// Remove from playlist
+const removeMutation = useRemoveFromPlaylist();
+removeMutation.mutate({ channelId, itemId });
+
+// Reorder playlist
+const reorderMutation = useReorderPlaylist();
+reorderMutation.mutate({ channelId, data: { items } });
+```
+
+**Query Keys:**
+```typescript
+import { playlistKeys } from "@/hooks/use-playlist";
+
+playlistKeys.all              // ["playlists"]
+playlistKeys.lists()          // ["playlists", "list"]
+playlistKeys.list(channelId)  // ["playlists", "list", channelId]
+```
 
 ### Media Hooks
 
@@ -1260,6 +1308,25 @@ Generates `/sitemap.xml` with static routes:
 - Channels (priority: 0.8, changeFrequency: daily)
 - Library (priority: 0.8, changeFrequency: weekly)
 - Settings (priority: 0.5, changeFrequency: monthly)
+
+## Channel Components
+
+Location: `web/components/channel/`
+
+### ChannelCard
+Displays channel information in a card format with current status. Props: `channel`, `onEdit`, `onDelete`, `onView`.
+
+### ChannelForm
+Form for creating/editing channels with playlist management. Props: `mode`, `channel?`, `playlist?`, `onSubmit`, `onCancel`, `isSubmitting?`. Includes drag-drop reorder support (@dnd-kit).
+
+### PlaylistEditor
+Manages playlist items with drag-drop reordering and media browser. Props: `items`, `onReorder`, `onAdd`, `onRemove`.
+
+### MediaBrowser
+Modal for browsing and selecting media to add to playlist. Props: `open`, `onOpenChange`, `onSelect`.
+
+### ChannelPreview
+Real-time preview showing "what's playing now" based on start time and playlist.
 
 ## Best Practices
 
