@@ -6,10 +6,14 @@ This document lists all tasks associated with PBI 9.
 
 ## Task Summary
 
-Tasks will be defined when this PBI moves from "Proposed" to "Agreed" status.
-
 | Task ID | Name | Status | Description |
-| :------ | :--- | :----- | :---------- |
-| -       | -    | -      | No tasks defined yet |
-
-
+| :------ | :--------------------------------------- | :------- | :--------------------------------- |
+| 9-1 | [Create Media Hierarchy Tree Component](./9-1.md) | Proposed | Build reusable tree view for Show > Season > Episode hierarchy with selection |
+| 9-2 | [Rebuild Media Browser with Tree View and Bulk Selection](./9-2.md) | Proposed | Complete rewrite of media browser to support tree view and bulk operations |
+| 9-3 | [Build Library Scanner Component](./9-3.md) | Proposed | Create UI for triggering scans and monitoring progress in real-time |
+| 9-4 | [Create Media Library Page with Tree View](./9-4.md) | Proposed | Build main library page with tree view, search, and filters |
+| 9-5 | [Build Media Detail Modal](./9-5.md) | Proposed | Create modal for viewing complete media metadata and file information |
+| 9-6 | [Build Media Editor Modal](./9-6.md) | Proposed | Create modal for editing media metadata with validation |
+| 9-7 | [Add Alternative Table View](./9-7.md) | Proposed | Add optional sortable table view as alternative to tree view |
+| 9-8 | [Add Alternative Grid View](./9-8.md) | Proposed | Add optional thumbnail grid view for visual browsing |
+| 9-9 | [E2E Testing and Integration](./9-9.md) | Proposed | End-to-end testing and verification of all acceptance criteria |

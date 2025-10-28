@@ -246,6 +246,6 @@ Support sorting by:
 
 ## Related Tasks
 
-Tasks for this PBI will be defined in [tasks.md](./tasks.md) once PBI moves to "Agreed" status.
+See [tasks.md](./tasks.md) for the complete list of tasks for this PBI.
 
 
