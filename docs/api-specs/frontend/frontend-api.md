@@ -1,6 +1,6 @@
 # Frontend Infrastructure API
 
-Last Updated: 2025-10-28 (Common components added)
+Last Updated: 2025-10-28 (Metadata utility and SEO configuration added)
 
 ## Utilities
 
@@ -31,6 +31,42 @@ cn("text-red-500", "text-blue-500"); // Results in text-blue-500
 // With component props
 <div className={cn("default-styles", className)} />
 ```
+
+### Metadata Utility
+
+Location: `web/lib/metadata.ts`
+
+**createMetadata() - Generate Page Metadata:**
+```typescript
+interface PageMetadata {
+  title: string;
+  description: string;
+  path?: string;
+}
+
+function createMetadata({ title, description, path = "" }: PageMetadata): Metadata
+```
+
+Creates consistent Next.js metadata including SEO, Open Graph, and Twitter Card tags.
+
+**Usage Example:**
+```typescript
+import type { Metadata } from "next";
+import { createMetadata } from "@/lib/metadata";
+
+export const metadata: Metadata = createMetadata({
+  title: "Channels",
+  description: "Manage your virtual TV channels",
+  path: "/channels",
+});
+```
+
+**Generated Metadata:**
+- Page title (uses template from root layout)
+- Description
+- Open Graph tags (title, description, url)
+- Twitter Card tags (summary_large_image, title, description)
+- Dynamic URL generation using `NEXT_PUBLIC_APP_URL` environment variable
 
 ## UI Components
 
@@ -1144,6 +1180,86 @@ Configured in `tsconfig.json`:
 Location: `web/components.json`
 
 Defines shadcn/ui configuration including style, colors, and paths. Used by shadcn CLI for component installation.
+
+### Environment Variables
+
+**Required Variables:**
+- `NEXT_PUBLIC_API_URL` - Backend API endpoint (default: http://localhost:8080)
+- `NEXT_PUBLIC_APP_URL` - Frontend URL for metadata and SEO (default: http://localhost:3000)
+
+**Configuration Files:**
+- `.env.example` - Template with all required variables
+- `.env.local` - Local development environment (gitignored)
+- `.env.production` - Production deployment reference
+
+**Usage:**
+```typescript
+const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+```
+
+## SEO and PWA Configuration
+
+### Root Layout Metadata
+
+Location: `web/app/layout.tsx`
+
+Comprehensive metadata configured with:
+- Title template: `"%s | Hermes"`
+- Full description and keywords
+- Open Graph tags (type, locale, url, title, description, siteName)
+- Twitter Card metadata (summary_large_image)
+- Robots configuration (index: true, follow: true)
+
+### Page-Specific Metadata
+
+All main pages export metadata using `createMetadata()` helper:
+- `app/channels/page.tsx` - Channels page metadata
+- `app/library/page.tsx` - Media library page metadata
+- `app/settings/page.tsx` - Settings page metadata
+
+### Dynamic Icons
+
+**App Icon** (`app/icon.tsx`):
+- Size: 32x32
+- Edge runtime
+- Dynamic generation using ImageResponse
+- Blue background (#2563eb) with "H" letter
+
+**Apple Touch Icon** (`app/apple-icon.tsx`):
+- Size: 180x180
+- Edge runtime
+- Rounded corners for iOS home screen
+
+### PWA Manifest
+
+Location: `app/manifest.ts`
+
+Generates `/manifest.webmanifest` with:
+- App name and short name
+- Description
+- Start URL and display mode (standalone)
+- Theme colors
+- Icon references (192x192, 512x512)
+
+### Robots.txt
+
+Location: `app/robots.ts`
+
+Generates `/robots.txt` with:
+- Allow all user agents to crawl "/"
+- Disallow: /api/, /api-test/, /stores-test/, /components/
+- Sitemap reference
+
+### Sitemap
+
+Location: `app/sitemap.ts`
+
+Generates `/sitemap.xml` with static routes:
+- Home (priority: 1.0, changeFrequency: daily)
+- Channels (priority: 0.8, changeFrequency: daily)
+- Library (priority: 0.8, changeFrequency: weekly)
+- Settings (priority: 0.5, changeFrequency: monthly)
 
 ## Best Practices
 
