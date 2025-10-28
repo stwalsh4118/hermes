@@ -36,6 +36,9 @@ export interface MediaTreeNode {
   /** Whether this node is in an indeterminate state (some but not all children selected) */
   indeterminate: boolean;
   
+  /** Whether this node is disabled (cannot be selected) */
+  disabled: boolean;
+  
   /** Depth level in the tree (0 = root) */
   depth: number;
   

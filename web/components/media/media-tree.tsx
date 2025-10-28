@@ -29,6 +29,9 @@ interface MediaTreeProps {
   
   /** Callback when selection changes */
   onSelectionChange?: (selectedMedia: Media[]) => void;
+  
+  /** Media IDs that should be disabled (cannot be selected) */
+  disabledMediaIds?: string[];
 }
 
 /**
@@ -42,6 +45,7 @@ export function MediaTree({
   className,
   height = 600,
   onSelectionChange,
+  disabledMediaIds = [],
 }: MediaTreeProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   
@@ -59,6 +63,7 @@ export function MediaTree({
   } = useMediaTree({
     media,
     searchQuery,
+    disabledMediaIds,
   });
 
   // Setup virtual scrolling
@@ -77,12 +82,21 @@ export function MediaTree({
   }, [flattenedNodes, activeNodeId]);
 
   // Notify parent when selection changes
+  const [previousSelectionIds, setPreviousSelectionIds] = useState<string>("");
+  
   useEffect(() => {
     if (onSelectionChange) {
       const selectedMedia = getSelectedMedia();
-      onSelectionChange(selectedMedia);
+      // Create a stable ID string from selected media IDs to detect actual changes
+      const currentSelectionIds = selectedMedia.map(m => m.id).sort().join(",");
+      
+      // Only call parent callback if selection actually changed
+      if (currentSelectionIds !== previousSelectionIds) {
+        setPreviousSelectionIds(currentSelectionIds);
+        onSelectionChange(selectedMedia);
+      }
     }
-  }, [getSelectedMedia, onSelectionChange]);
+  }, [getSelectedMedia, onSelectionChange, previousSelectionIds]);
 
   // Keyboard navigation using aria-activedescendant pattern
   useEffect(() => {

@@ -83,19 +83,23 @@ export function MediaTreeNodeComponent({
       className={cn(
         "flex items-center gap-2 py-2 px-3 font-mono text-sm",
         "border-b border-border/50",
-        "hover:bg-muted/30 transition-colors",
-        "cursor-pointer select-none",
+        "transition-colors",
+        node.disabled 
+          ? "opacity-50 cursor-not-allowed" 
+          : "hover:bg-muted/30 cursor-pointer",
+        "select-none",
         isActive && "bg-accent/20 ring-2 ring-primary ring-inset"
       )}
       style={{ paddingLeft: `${paddingLeft + 12}px` }}
-      onClick={handleRowClick}
+      onClick={node.disabled ? undefined : handleRowClick}
       role="treeitem"
       aria-expanded={hasChildNodes ? node.expanded : undefined}
       aria-selected={node.selected}
       aria-level={depth + 1}
+      aria-disabled={node.disabled}
     >
       {/* Expand/collapse chevron */}
-      <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
+      <div className="w-5 h-5 flex items-center justify-center shrink-0">
         {hasChildNodes ? (
           <button
             onClick={(e) => {
@@ -124,12 +128,13 @@ export function MediaTreeNodeComponent({
         <Checkbox
           checked={node.selected ? true : node.indeterminate ? "indeterminate" : false}
           onCheckedChange={handleCheckboxChange}
+          disabled={node.disabled}
           aria-label={`Select ${node.label}`}
         />
       </div>
 
       {/* Icon */}
-      <div className="w-5 h-5 flex items-center justify-center flex-shrink-0 text-muted-foreground">
+      <div className="w-5 h-5 flex items-center justify-center shrink-0 text-muted-foreground">
         {isEpisode ? (
           <Film className="w-4 h-4" />
         ) : (
@@ -156,6 +161,13 @@ export function MediaTreeNodeComponent({
           {node.episodeCount !== undefined && (
             <span className="text-xs text-muted-foreground whitespace-nowrap">
               {node.episodeCount} {node.episodeCount === 1 ? "episode" : "episodes"}
+            </span>
+          )}
+          
+          {/* Already Added badge for disabled items */}
+          {node.disabled && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border font-bold text-xs whitespace-nowrap">
+              ALREADY ADDED
             </span>
           )}
         </div>

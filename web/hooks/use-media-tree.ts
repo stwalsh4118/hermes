@@ -15,6 +15,9 @@ interface UseMediaTreeOptions {
   
   /** Search query to filter nodes */
   searchQuery?: string;
+  
+  /** Media IDs that should be disabled (cannot be selected) */
+  disabledMediaIds?: string[];
 }
 
 /**
@@ -24,6 +27,7 @@ interface UseMediaTreeOptions {
 export function useMediaTree({
   media,
   searchQuery = "",
+  disabledMediaIds = [],
 }: UseMediaTreeOptions): UseMediaTreeResult {
   // Track expanded node IDs
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -107,21 +111,28 @@ export function useMediaTree({
           : "No Season";
         
         // Create episode nodes
-        const episodeNodes: MediaTreeNode[] = sortedEpisodes.map((episode) => ({
-          id: `episode:${episode.id}`,
-          type: "episode",
-          label: formatEpisodeLabel(episode),
-          media: episode,
-          expanded: false,
-          selected: selectedIds.has(`episode:${episode.id}`),
-          indeterminate: false,
-          depth: 2,
-          parentId: seasonId,
-        }));
+        const episodeNodes: MediaTreeNode[] = sortedEpisodes.map((episode) => {
+          const episodeId = `episode:${episode.id}`;
+          const isDisabled = disabledMediaIds.includes(episode.id);
+          return {
+            id: episodeId,
+            type: "episode",
+            label: formatEpisodeLabel(episode),
+            media: episode,
+            expanded: false,
+            selected: selectedIds.has(episodeId) && !isDisabled,
+            indeterminate: false,
+            disabled: isDisabled,
+            depth: 2,
+            parentId: seasonId,
+          };
+        });
         
-        // Check if all episodes are selected
-        const allSelected = episodeNodes.every((n) => n.selected);
-        const someSelected = episodeNodes.some((n) => n.selected);
+        // Check if all episodes are selected (excluding disabled)
+        const enabledEpisodes = episodeNodes.filter((n) => !n.disabled);
+        const allSelected = enabledEpisodes.length > 0 && enabledEpisodes.every((n) => n.selected);
+        const someSelected = enabledEpisodes.some((n) => n.selected);
+        const allDisabled = episodeNodes.every((n) => n.disabled);
         
         // Create season node
         const seasonNode: MediaTreeNode = {
@@ -133,6 +144,7 @@ export function useMediaTree({
           expanded: expandedIds.has(seasonId),
           selected: allSelected,
           indeterminate: !allSelected && someSelected,
+          disabled: allDisabled,
           depth: 1,
           parentId: showId,
         };
@@ -140,9 +152,11 @@ export function useMediaTree({
         seasonNodes.push(seasonNode);
       });
       
-      // Check if all seasons are selected
-      const allSeasonsSelected = seasonNodes.every((n) => n.selected);
-      const someSeasonsSelected = seasonNodes.some((n) => n.selected || n.indeterminate);
+      // Check if all seasons are selected (excluding disabled)
+      const enabledSeasons = seasonNodes.filter((n) => !n.disabled);
+      const allSeasonsSelected = enabledSeasons.length > 0 && enabledSeasons.every((n) => n.selected);
+      const someSeasonsSelected = enabledSeasons.some((n) => n.selected || n.indeterminate);
+      const allSeasonsDisabled = seasonNodes.every((n) => n.disabled);
       
       // Create show node
       const showNode: MediaTreeNode = {
@@ -154,6 +168,7 @@ export function useMediaTree({
         expanded: expandedIds.has(showId),
         selected: allSeasonsSelected,
         indeterminate: !allSeasonsSelected && someSeasonsSelected,
+        disabled: allSeasonsDisabled,
         depth: 0,
       };
       
@@ -161,7 +176,7 @@ export function useMediaTree({
     });
     
     return treeNodes;
-  }, [media, expandedIds, selectedIds]);
+  }, [media, expandedIds, selectedIds, disabledMediaIds]);
 
   /**
    * Filter and flatten tree based on search query
@@ -248,7 +263,7 @@ export function useMediaTree({
       };
       
       const node = findNode(tree);
-      if (!node) return prev;
+      if (!node || node.disabled) return prev;
       
       // Update this node
       if (selected) {
@@ -257,10 +272,12 @@ export function useMediaTree({
         next.delete(nodeId);
       }
       
-      // Cascade to all descendants
+      // Cascade to all descendants (skip disabled nodes)
       const cascadeToChildren = (n: MediaTreeNode) => {
         if (n.children) {
           n.children.forEach((child) => {
+            if (child.disabled) return; // Skip disabled nodes
+            
             if (selected) {
               next.add(child.id);
             } else {
