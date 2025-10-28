@@ -53,7 +53,11 @@ func (r *ChannelRepository) Update(ctx context.Context, channel *models.Channel)
 	// Update the UpdatedAt timestamp
 	channel.UpdatedAt = time.Now().UTC()
 
-	result := r.db.WithContext(ctx).Where("id = ?", channel.ID.String()).Updates(channel)
+	// Use Select to explicitly update all fields including zero values
+	result := r.db.WithContext(ctx).
+		Where("id = ?", channel.ID.String()).
+		Select("name", "icon", "start_time", "loop", "updated_at").
+		Updates(channel)
 	if result.Error != nil {
 		return fmt.Errorf("failed to update channel: %w", MapGormError(result.Error))
 	}
