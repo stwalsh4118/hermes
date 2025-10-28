@@ -1,87 +1,477 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
-@plugin "@tailwindcss/typography";
-@plugin "@tailwindcss/forms";
+@custom-variant retro (&:is(.retro *));
+@custom-variant neon-arcade (&:is(.neon-arcade *));
+@custom-variant sunset-vhs (&:is(.sunset-vhs *));
+@custom-variant retro-gaming (&:is(.retro-gaming *));
+@custom-variant miami-vice (&:is(.miami-vice *));
 
-@theme {
-  /* Border radius */
-  --radius: 0.5rem;
-}
-
-/* Light mode colors */
 :root {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
-  --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222.2 84% 4.9%;
-  --primary: 221.2 83.2% 53.3%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 210 40% 96.1%;
-  --accent-foreground: 222.2 47.4% 11.2%;
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 221.2 83.2% 53.3%;
-  --sidebar: hsl(0 0% 98%);
-  --sidebar-foreground: hsl(240 5.3% 26.1%);
-  --sidebar-primary: hsl(240 5.9% 10%);
-  --sidebar-primary-foreground: hsl(0 0% 98%);
-  --sidebar-accent: hsl(240 4.8% 95.9%);
-  --sidebar-accent-foreground: hsl(240 5.9% 10%);
-  --sidebar-border: hsl(220 13% 91%);
-  --sidebar-ring: hsl(217.2 91.2% 59.8%);
+  /* Modern Clean Theme - Light mode base (fallback) */
+  --background: oklch(0.98 0 0);
+  --foreground: oklch(0.15 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.15 0 0);
+  --primary: oklch(0.55 0.22 264);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.92 0.01 264);
+  --secondary-foreground: oklch(0.15 0 0);
+  --muted: oklch(0.94 0.01 264);
+  --muted-foreground: oklch(0.5 0.01 264);
+  --accent: oklch(0.65 0.25 330);
+  --accent-foreground: oklch(0.99 0 0);
+  --destructive: oklch(0.58 0.24 27);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.88 0.01 264);
+  --input: oklch(0.88 0.01 264);
+  --ring: oklch(0.55 0.22 264);
+  --chart-1: oklch(0.55 0.22 264);
+  --chart-2: oklch(0.65 0.25 330);
+  --chart-3: oklch(0.6 0.2 200);
+  --chart-4: oklch(0.7 0.18 150);
+  --chart-5: oklch(0.5 0.15 280);
+  --radius: 0.75rem;
+  --sidebar: oklch(0.98 0 0);
+  --sidebar-foreground: oklch(0.15 0 0);
+  --sidebar-primary: oklch(0.55 0.22 264);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.94 0.01 264);
+  --sidebar-accent-foreground: oklch(0.15 0 0);
+  --sidebar-border: oklch(0.88 0.01 264);
+  --sidebar-ring: oklch(0.55 0.22 264);
+
+  /* Glassmorphism effects */
+  --glass-bg: oklch(1 0 0 / 0.05);
+  --glass-border: oklch(1 0 0 / 0.1);
+  --glass-blur: 12px;
 }
 
-/* Dark mode colors */
 .dark {
-  --background: 222.2 84% 4.9%;
-  --foreground: 210 40% 98%;
-  --card: 222.2 84% 4.9%;
-  --card-foreground: 210 40% 98%;
-  --popover: 222.2 84% 4.9%;
-  --popover-foreground: 210 40% 98%;
-  --primary: 217.2 91.2% 59.8%;
-  --primary-foreground: 222.2 47.4% 11.2%;
-  --secondary: 217.2 32.6% 17.5%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 217.2 32.6% 17.5%;
-  --muted-foreground: 215 20.2% 65.1%;
-  --accent: 217.2 32.6% 17.5%;
-  --accent-foreground: 210 40% 98%;
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 217.2 32.6% 17.5%;
-  --input: 217.2 32.6% 17.5%;
-  --ring: 224.3 76.3% 48%;
-  --sidebar: hsl(240 5.9% 10%);
-  --sidebar-foreground: hsl(240 4.8% 95.9%);
-  --sidebar-primary: hsl(224.3 76.3% 48%);
-  --sidebar-primary-foreground: hsl(0 0% 100%);
-  --sidebar-accent: hsl(240 3.7% 15.9%);
-  --sidebar-accent-foreground: hsl(240 4.8% 95.9%);
-  --sidebar-border: hsl(240 3.7% 15.9%);
-  --sidebar-ring: hsl(217.2 91.2% 59.8%);
+  /* Modern Clean Theme - Sophisticated dark streaming service aesthetic */
+  --background: oklch(0.1 0.01 264);
+  --foreground: oklch(0.98 0 0);
+  --card: oklch(0.14 0.015 264);
+  --card-foreground: oklch(0.98 0 0);
+  --popover: oklch(0.12 0.015 264);
+  --popover-foreground: oklch(0.98 0 0);
+  --primary: oklch(0.65 0.25 264);
+  --primary-foreground: oklch(0.1 0.01 264);
+  --secondary: oklch(0.2 0.02 264);
+  --secondary-foreground: oklch(0.98 0 0);
+  --muted: oklch(0.18 0.02 264);
+  --muted-foreground: oklch(0.65 0.01 264);
+  --accent: oklch(0.7 0.28 330);
+  --accent-foreground: oklch(0.1 0.01 264);
+  --destructive: oklch(0.6 0.25 27);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.25 0.02 264);
+  --input: oklch(0.2 0.02 264);
+  --ring: oklch(0.65 0.25 264);
+  --chart-1: oklch(0.65 0.25 264);
+  --chart-2: oklch(0.7 0.28 330);
+  --chart-3: oklch(0.68 0.22 200);
+  --chart-4: oklch(0.75 0.2 150);
+  --chart-5: oklch(0.6 0.18 280);
+  --sidebar: oklch(0.12 0.015 264);
+  --sidebar-foreground: oklch(0.98 0 0);
+  --sidebar-primary: oklch(0.65 0.25 264);
+  --sidebar-primary-foreground: oklch(0.1 0.01 264);
+  --sidebar-accent: oklch(0.18 0.02 264);
+  --sidebar-accent-foreground: oklch(0.98 0 0);
+  --sidebar-border: oklch(0.25 0.02 264);
+  --sidebar-ring: oklch(0.65 0.25 264);
+  --glass-bg: oklch(0.98 0 0 / 0.03);
+  --glass-border: oklch(0.98 0 0 / 0.08);
+  --glass-blur: 16px;
+  --live-indicator: oklch(0.65 0.28 142);
+  --offline-indicator: oklch(0.5 0.05 264);
+  --now-playing-glow: oklch(0.65 0.25 264 / 0.3);
 }
 
-/* Base styles */
-* {
-  border-color: hsl(var(--border));
+/* Adding Retro/CRT Theme with warm 80s/90s color palette */
+.retro {
+  /* Retro/CRT Theme - Nostalgic 80s/90s Saturday morning cartoons aesthetic */
+  /* Warm beige/cream background reminiscent of old TV sets */
+  --background: oklch(0.92 0.02 60);
+  --foreground: oklch(0.2 0.03 30);
+
+  /* Card with slight warm tint */
+  --card: oklch(0.95 0.015 60);
+  --card-foreground: oklch(0.2 0.03 30);
+
+  /* Popover with cream background */
+  --popover: oklch(0.94 0.02 60);
+  --popover-foreground: oklch(0.2 0.03 30);
+
+  /* Vibrant teal/cyan primary - classic 80s/90s TV color */
+  --primary: oklch(0.6 0.15 200);
+  --primary-foreground: oklch(0.98 0.01 60);
+
+  /* Warm orange secondary */
+  --secondary: oklch(0.75 0.12 50);
+  --secondary-foreground: oklch(0.2 0.03 30);
+
+  /* Muted warm gray */
+  --muted: oklch(0.85 0.02 60);
+  --muted-foreground: oklch(0.45 0.03 30);
+
+  /* Hot pink/magenta accent - vibrant 80s color */
+  --accent: oklch(0.65 0.22 340);
+  --accent-foreground: oklch(0.98 0.01 60);
+
+  /* Warm red for destructive */
+  --destructive: oklch(0.55 0.22 30);
+  --destructive-foreground: oklch(0.98 0.01 60);
+
+  /* Borders with warm tint */
+  --border: oklch(0.75 0.03 60);
+  --input: oklch(0.88 0.02 60);
+  --ring: oklch(0.6 0.15 200);
+
+  /* Retro chart colors - warm and vibrant */
+  --chart-1: oklch(0.6 0.15 200); /* Teal */
+  --chart-2: oklch(0.65 0.22 340); /* Hot pink */
+  --chart-3: oklch(0.7 0.18 80); /* Yellow */
+  --chart-4: oklch(0.75 0.12 50); /* Orange */
+  --chart-5: oklch(0.55 0.18 280); /* Purple */
+
+  /* Rounded corners for retro chunky buttons */
+  --radius: 0.5rem;
+
+  /* Sidebar with warm wood-like tone */
+  --sidebar: oklch(0.88 0.03 50);
+  --sidebar-foreground: oklch(0.2 0.03 30);
+  --sidebar-primary: oklch(0.6 0.15 200);
+  --sidebar-primary-foreground: oklch(0.98 0.01 60);
+  --sidebar-accent: oklch(0.85 0.02 60);
+  --sidebar-accent-foreground: oklch(0.2 0.03 30);
+  --sidebar-border: oklch(0.75 0.03 60);
+  --sidebar-ring: oklch(0.6 0.15 200);
+
+  /* CRT-specific effects */
+  --glass-bg: oklch(0.2 0.03 30 / 0.05);
+  --glass-border: oklch(0.2 0.03 30 / 0.15);
+  --glass-blur: 8px;
+  --live-indicator: oklch(0.6 0.25 142);
+  --offline-indicator: oklch(0.5 0.05 30);
+  --now-playing-glow: oklch(0.6 0.15 200 / 0.4);
+
+  /* CRT screen glow effect */
+  --crt-glow: oklch(0.6 0.15 200 / 0.2);
+  --scanline-color: oklch(0.2 0.03 30 / 0.1);
 }
 
-body {
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
+/* Adding Neon Arcade theme - Electric purple/magenta with cyan and yellow */
+.neon-arcade {
+  /* Deep navy/black background with slight purple tint */
+  --background: oklch(0.15 0.03 280);
+  --foreground: oklch(0.98 0.02 280);
+
+  /* Card with dark purple tint */
+  --card: oklch(0.18 0.04 280);
+  --card-foreground: oklch(0.98 0.02 280);
+
+  /* Popover */
+  --popover: oklch(0.16 0.04 280);
+  --popover-foreground: oklch(0.98 0.02 280);
+
+  /* Electric purple/magenta primary */
+  --primary: oklch(0.65 0.28 320);
+  --primary-foreground: oklch(0.98 0.01 280);
+
+  /* Bright cyan secondary */
+  --secondary: oklch(0.7 0.18 200);
+  --secondary-foreground: oklch(0.15 0.03 280);
+
+  /* Muted dark purple */
+  --muted: oklch(0.25 0.04 280);
+  --muted-foreground: oklch(0.6 0.03 280);
+
+  /* Bright yellow/gold accent */
+  --accent: oklch(0.8 0.18 90);
+  --accent-foreground: oklch(0.15 0.03 280);
+
+  /* Hot pink for destructive */
+  --destructive: oklch(0.6 0.28 350);
+  --destructive-foreground: oklch(0.98 0.01 280);
+
+  /* Borders with purple tint */
+  --border: oklch(0.3 0.05 280);
+  --input: oklch(0.22 0.04 280);
+  --ring: oklch(0.65 0.28 320);
+
+  /* Neon chart colors */
+  --chart-1: oklch(0.65 0.28 320); /* Electric purple */
+  --chart-2: oklch(0.7 0.18 200); /* Cyan */
+  --chart-3: oklch(0.8 0.18 90); /* Yellow */
+  --chart-4: oklch(0.6 0.28 350); /* Hot pink */
+  --chart-5: oklch(0.7 0.22 140); /* Neon green */
+
+  --radius: 0.5rem;
+
+  /* Sidebar */
+  --sidebar: oklch(0.16 0.04 280);
+  --sidebar-foreground: oklch(0.98 0.02 280);
+  --sidebar-primary: oklch(0.65 0.28 320);
+  --sidebar-primary-foreground: oklch(0.98 0.01 280);
+  --sidebar-accent: oklch(0.25 0.04 280);
+  --sidebar-accent-foreground: oklch(0.98 0.02 280);
+  --sidebar-border: oklch(0.3 0.05 280);
+  --sidebar-ring: oklch(0.65 0.28 320);
+
+  /* CRT effects */
+  --glass-bg: oklch(0.98 0.02 280 / 0.05);
+  --glass-border: oklch(0.98 0.02 280 / 0.15);
+  --glass-blur: 8px;
+  --live-indicator: oklch(0.7 0.22 140);
+  --offline-indicator: oklch(0.5 0.05 280);
+  --now-playing-glow: oklch(0.65 0.28 320 / 0.4);
+  --crt-glow: oklch(0.65 0.28 320 / 0.3);
+  --scanline-color: oklch(0.98 0.02 280 / 0.08);
+}
+
+/* Adding Sunset VHS theme - Coral/salmon pink with purple and amber */
+.sunset-vhs {
+  /* Dark charcoal background with warm tint */
+  --background: oklch(0.18 0.02 30);
+  --foreground: oklch(0.95 0.02 40);
+
+  /* Card with warm dark tone */
+  --card: oklch(0.22 0.03 30);
+  --card-foreground: oklch(0.95 0.02 40);
+
+  /* Popover */
+  --popover: oklch(0.2 0.03 30);
+  --popover-foreground: oklch(0.95 0.02 40);
+
+  /* Coral/salmon pink primary */
+  --primary: oklch(0.7 0.18 20);
+  --primary-foreground: oklch(0.18 0.02 30);
+
+  /* Deep purple secondary */
+  --secondary: oklch(0.5 0.2 300);
+  --secondary-foreground: oklch(0.95 0.02 40);
+
+  /* Muted warm gray */
+  --muted: oklch(0.3 0.03 30);
+  --muted-foreground: oklch(0.6 0.02 30);
+
+  /* Warm amber/gold accent */
+  --accent: oklch(0.75 0.15 70);
+  --accent-foreground: oklch(0.18 0.02 30);
+
+  /* Warm red for destructive */
+  --destructive: oklch(0.55 0.24 30);
+  --destructive-foreground: oklch(0.95 0.02 40);
+
+  /* Borders */
+  --border: oklch(0.35 0.03 30);
+  --input: oklch(0.28 0.03 30);
+  --ring: oklch(0.7 0.18 20);
+
+  /* Sunset chart colors */
+  --chart-1: oklch(0.7 0.18 20); /* Coral */
+  --chart-2: oklch(0.5 0.2 300); /* Purple */
+  --chart-3: oklch(0.75 0.15 70); /* Amber */
+  --chart-4: oklch(0.65 0.22 350); /* Pink */
+  --chart-5: oklch(0.6 0.18 180); /* Teal */
+
+  --radius: 0.5rem;
+
+  /* Sidebar */
+  --sidebar: oklch(0.2 0.03 30);
+  --sidebar-foreground: oklch(0.95 0.02 40);
+  --sidebar-primary: oklch(0.7 0.18 20);
+  --sidebar-primary-foreground: oklch(0.18 0.02 30);
+  --sidebar-accent: oklch(0.3 0.03 30);
+  --sidebar-accent-foreground: oklch(0.95 0.02 40);
+  --sidebar-border: oklch(0.35 0.03 30);
+  --sidebar-ring: oklch(0.7 0.18 20);
+
+  /* CRT effects */
+  --glass-bg: oklch(0.95 0.02 40 / 0.05);
+  --glass-border: oklch(0.95 0.02 40 / 0.15);
+  --glass-blur: 8px;
+  --live-indicator: oklch(0.7 0.22 140);
+  --offline-indicator: oklch(0.5 0.05 30);
+  --now-playing-glow: oklch(0.7 0.18 20 / 0.4);
+  --crt-glow: oklch(0.7 0.18 20 / 0.3);
+  --scanline-color: oklch(0.95 0.02 40 / 0.08);
+}
+
+/* Adding Retro Gaming theme - Lime green with magenta and orange */
+.retro-gaming {
+  /* Dark purple/black background */
+  --background: oklch(0.12 0.04 300);
+  --foreground: oklch(0.95 0.02 120);
+
+  /* Card with dark purple */
+  --card: oklch(0.16 0.05 300);
+  --card-foreground: oklch(0.95 0.02 120);
+
+  /* Popover */
+  --popover: oklch(0.14 0.05 300);
+  --popover-foreground: oklch(0.95 0.02 120);
+
+  /* Lime green primary */
+  --primary: oklch(0.75 0.22 130);
+  --primary-foreground: oklch(0.12 0.04 300);
+
+  /* Hot magenta secondary */
+  --secondary: oklch(0.65 0.28 330);
+  --secondary-foreground: oklch(0.95 0.02 120);
+
+  /* Muted dark purple */
+  --muted: oklch(0.25 0.05 300);
+  --muted-foreground: oklch(0.6 0.03 300);
+
+  /* Bright orange accent */
+  --accent: oklch(0.7 0.2 50);
+  --accent-foreground: oklch(0.12 0.04 300);
+
+  /* Red for destructive */
+  --destructive: oklch(0.6 0.26 30);
+  --destructive-foreground: oklch(0.95 0.02 120);
+
+  /* Borders */
+  --border: oklch(0.3 0.06 300);
+  --input: oklch(0.22 0.05 300);
+  --ring: oklch(0.75 0.22 130);
+
+  /* Gaming chart colors */
+  --chart-1: oklch(0.75 0.22 130); /* Lime */
+  --chart-2: oklch(0.65 0.28 330); /* Magenta */
+  --chart-3: oklch(0.7 0.2 50); /* Orange */
+  --chart-4: oklch(0.7 0.24 200); /* Cyan */
+  --chart-5: oklch(0.8 0.18 90); /* Yellow */
+
+  --radius: 0.5rem;
+
+  /* Sidebar */
+  --sidebar: oklch(0.14 0.05 300);
+  --sidebar-foreground: oklch(0.95 0.02 120);
+  --sidebar-primary: oklch(0.75 0.22 130);
+  --sidebar-primary-foreground: oklch(0.12 0.04 300);
+  --sidebar-accent: oklch(0.25 0.05 300);
+  --sidebar-accent-foreground: oklch(0.95 0.02 120);
+  --sidebar-border: oklch(0.3 0.06 300);
+  --sidebar-ring: oklch(0.75 0.22 130);
+
+  /* CRT effects */
+  --glass-bg: oklch(0.95 0.02 120 / 0.05);
+  --glass-border: oklch(0.95 0.02 120 / 0.15);
+  --glass-blur: 8px;
+  --live-indicator: oklch(0.75 0.22 130);
+  --offline-indicator: oklch(0.5 0.05 300);
+  --now-playing-glow: oklch(0.75 0.22 130 / 0.4);
+  --crt-glow: oklch(0.75 0.22 130 / 0.3);
+  --scanline-color: oklch(0.95 0.02 120 / 0.08);
+}
+
+/* Adding Miami Vice theme - Hot pink with purple and turquoise */
+.miami-vice {
+  /* Dark navy background */
+  --background: oklch(0.14 0.04 260);
+  --foreground: oklch(0.96 0.02 320);
+
+  /* Card with navy */
+  --card: oklch(0.18 0.05 260);
+  --card-foreground: oklch(0.96 0.02 320);
+
+  /* Popover */
+  --popover: oklch(0.16 0.05 260);
+  --popover-foreground: oklch(0.96 0.02 320);
+
+  /* Hot pink primary */
+  --primary: oklch(0.68 0.26 340);
+  --primary-foreground: oklch(0.14 0.04 260);
+
+  /* Deep purple secondary */
+  --secondary: oklch(0.55 0.24 290);
+  --secondary-foreground: oklch(0.96 0.02 320);
+
+  /* Muted navy */
+  --muted: oklch(0.28 0.05 260);
+  --muted-foreground: oklch(0.6 0.03 260);
+
+  /* Turquoise/aqua accent */
+  --accent: oklch(0.72 0.16 190);
+  --accent-foreground: oklch(0.14 0.04 260);
+
+  /* Pink for destructive */
+  --destructive: oklch(0.6 0.28 350);
+  --destructive-foreground: oklch(0.96 0.02 320);
+
+  /* Borders */
+  --border: oklch(0.32 0.06 260);
+  --input: oklch(0.24 0.05 260);
+  --ring: oklch(0.68 0.26 340);
+
+  /* Miami Vice chart colors */
+  --chart-1: oklch(0.68 0.26 340); /* Hot pink */
+  --chart-2: oklch(0.55 0.24 290); /* Purple */
+  --chart-3: oklch(0.72 0.16 190); /* Turquoise */
+  --chart-4: oklch(0.75 0.18 70); /* Gold */
+  --chart-5: oklch(0.7 0.22 140); /* Neon green */
+
+  --radius: 0.5rem;
+
+  /* Sidebar */
+  --sidebar: oklch(0.16 0.05 260);
+  --sidebar-foreground: oklch(0.96 0.02 320);
+  --sidebar-primary: oklch(0.68 0.26 340);
+  --sidebar-primary-foreground: oklch(0.14 0.04 260);
+  --sidebar-accent: oklch(0.28 0.05 260);
+  --sidebar-accent-foreground: oklch(0.96 0.02 320);
+  --sidebar-border: oklch(0.32 0.06 260);
+  --sidebar-ring: oklch(0.68 0.26 340);
+
+  /* CRT effects */
+  --glass-bg: oklch(0.96 0.02 320 / 0.05);
+  --glass-border: oklch(0.96 0.02 320 / 0.15);
+  --glass-blur: 8px;
+  --live-indicator: oklch(0.7 0.22 140);
+  --offline-indicator: oklch(0.5 0.05 260);
+  --now-playing-glow: oklch(0.68 0.26 340 / 0.4);
+  --crt-glow: oklch(0.68 0.26 340 / 0.3);
+  --scanline-color: oklch(0.96 0.02 320 / 0.08);
 }
 
 @theme inline {
+  --font-sans: "Geist", "Geist Fallback";
+  --font-mono: "Geist Mono", "Geist Mono Fallback";
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -90,35 +480,142 @@ body {
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --animate-accordion-down: accordion-down 0.2s ease-out;
-  --animate-accordion-up: accordion-up 0.2s ease-out;
-
-  @keyframes accordion-down {
-    from {
-      height: 0;
-    }
-    to {
-      height: var(--radix-accordion-content-height);
-    }
-  }
-
-  @keyframes accordion-up {
-    from {
-      height: var(--radix-accordion-content-height);
-    }
-    to {
-      height: 0;
-    }
-  }
 }
 
 @layer base {
   * {
-    border-color: hsl(var(--border));
-    outline-color: hsl(var(--ring) / 0.5);
+    @apply border-border outline-ring/50;
   }
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
+    @apply bg-background text-foreground;
+  }
+
+  /* Live indicator pulse animation */
+  .live-pulse {
+    animation: live-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  @keyframes live-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  /* Adding CRT scanline animation */
+  @keyframes scanline {
+    0% {
+      transform: translateY(-100%);
+    }
+    100% {
+      transform: translateY(100%);
+    }
+  }
+
+  /* Adding CRT flicker animation */
+  @keyframes crt-flicker {
+    0% {
+      opacity: 0.97;
+    }
+    50% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0.97;
+    }
+  }
+}
+
+@layer utilities {
+  /* Glassmorphism utility classes */
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+  }
+
+  .glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    border-radius: 0.75rem;
+  }
+
+  .now-playing-glow {
+    box-shadow: 0 0 20px var(--now-playing-glow), 0 0 40px var(--now-playing-glow);
+  }
+
+  .transition-smooth {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Adding CRT effect utilities */
+  .crt-screen {
+    position: relative;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    box-shadow: inset 0 0 40px var(--crt-glow), 0 0 60px var(--crt-glow), 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .crt-screen::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(to bottom, transparent 50%, var(--scanline-color) 50%);
+    background-size: 100% 4px;
+    pointer-events: none;
+    z-index: 2;
+    animation: crt-flicker 0.15s infinite;
+  }
+
+  .crt-screen::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 100%;
+    background: linear-gradient(to bottom, transparent, var(--scanline-color) 50%, transparent);
+    pointer-events: none;
+    z-index: 3;
+    animation: scanline 8s linear infinite;
+    opacity: 0.5;
+  }
+
+  /* Retro chunky button style */
+  .retro-button {
+    border: 3px solid currentColor;
+    font-weight: 700;
+    text-transform: uppercase;
+    box-shadow: 4px 4px 0 currentColor;
+    letter-spacing: 0.05em;
+    transition: all 0.1s ease;
+  }
+
+  .retro-button:hover {
+    transform: translate(2px, 2px);
+    box-shadow: 2px 2px 0 currentColor;
+  }
+
+  .retro-button:active {
+    transform: translate(4px, 4px);
+    box-shadow: 0 0 0 currentColor;
+  }
+
+  /* VCR-style text effect */
+  .vcr-text {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    text-shadow: 2px 2px 0 var(--crt-glow);
   }
 }
