@@ -1,6 +1,6 @@
 # Frontend Infrastructure API
 
-Last Updated: 2025-10-28 (Navigation and header components added)
+Last Updated: 2025-10-28 (Common components added)
 
 ## Utilities
 
@@ -127,6 +127,288 @@ import { Button } from "@/components/ui/button";
   description="Manage your virtual TV channels"
   actions={<Button>New Channel</Button>}
 />
+```
+
+## Common Components
+
+Location: `web/components/common/`
+
+Reusable components for loading states, error messages, empty states, and data display patterns.
+
+### LoadingSpinner
+
+Location: `web/components/common/loading-spinner.tsx`
+
+Animated loading spinner with size variants.
+
+**Props:**
+```typescript
+interface LoadingSpinnerProps {
+  size?: "sm" | "md" | "lg";
+  className?: string;
+}
+```
+
+**Usage:**
+```typescript
+import { LoadingSpinner } from "@/components/common/loading-spinner";
+
+<LoadingSpinner size="md" />
+```
+
+**Features:**
+- Three size variants: sm (4x4), md (8x8), lg (12x12)
+- Uses Loader2 icon from lucide-react
+- Smooth spin animation
+- Centered in flex container with padding
+
+### SkeletonCard
+
+Location: `web/components/common/skeleton-card.tsx`
+
+Card skeleton loader matching typical card layout.
+
+**Usage:**
+```typescript
+import { SkeletonCard } from "@/components/common/skeleton-card";
+
+<SkeletonCard />
+```
+
+**Features:**
+- Matches shadcn Card structure (header + content)
+- Placeholder for title, subtitle, image, and text lines
+- Responsive sizing
+
+### SkeletonList
+
+Location: `web/components/common/skeleton-list.tsx`
+
+List skeleton loader with configurable item count.
+
+**Props:**
+```typescript
+interface SkeletonListProps {
+  count?: number; // Default: 5
+}
+```
+
+**Usage:**
+```typescript
+import { SkeletonList } from "@/components/common/skeleton-list";
+
+<SkeletonList count={3} />
+```
+
+**Features:**
+- Configurable number of items
+- Avatar + two-line text pattern
+- Consistent spacing
+
+### ErrorMessage
+
+Location: `web/components/common/error-message.tsx`
+
+Error alert with optional retry button.
+
+**Props:**
+```typescript
+interface ErrorMessageProps {
+  title?: string;        // Default: "Error"
+  message: string;
+  onRetry?: () => void;
+  showIcon?: boolean;    // Default: true
+}
+```
+
+**Usage:**
+```typescript
+import { ErrorMessage } from "@/components/common/error-message";
+
+<ErrorMessage
+  message="Failed to load data"
+  onRetry={() => refetch()}
+/>
+```
+
+**Features:**
+- Uses shadcn Alert component (destructive variant)
+- AlertCircle icon
+- Optional retry button with RefreshCw icon
+- Accessible and semantic markup
+
+### EmptyState
+
+Location: `web/components/common/empty-state.tsx`
+
+Empty state component with icon, text, and optional action.
+
+**Props:**
+```typescript
+interface EmptyStateProps {
+  icon?: LucideIcon;
+  title: string;
+  description: string;
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
+}
+```
+
+**Usage:**
+```typescript
+import { EmptyState } from "@/components/common/empty-state";
+import { InboxIcon } from "lucide-react";
+
+<EmptyState
+  icon={InboxIcon}
+  title="No channels yet"
+  description="Get started by creating your first TV channel"
+  action={{
+    label: "Create Channel",
+    onClick: () => router.push("/channels/new")
+  }}
+/>
+```
+
+**Features:**
+- Icon in circular muted background
+- Centered layout with max-width description
+- Optional call-to-action button
+- Flexible and composable
+
+### DataWrapper
+
+Location: `web/components/common/data-wrapper.tsx`
+
+Generic wrapper component that handles loading, error, and empty states with render props pattern.
+
+**Props:**
+```typescript
+interface DataWrapperProps<T> {
+  data: T | undefined;
+  isLoading: boolean;
+  error: Error | null;
+  isEmpty?: (data: T) => boolean;
+  emptyState?: {
+    icon?: LucideIcon;
+    title: string;
+    description: string;
+    action?: {
+      label: string;
+      onClick: () => void;
+    };
+  };
+  onRetry?: () => void;
+  children: (data: T) => React.ReactNode;
+}
+```
+
+**Usage:**
+```typescript
+import { DataWrapper } from "@/components/common/data-wrapper";
+import { InboxIcon } from "lucide-react";
+
+const { data, isLoading, error } = useChannels();
+
+<DataWrapper
+  data={data}
+  isLoading={isLoading}
+  error={error}
+  isEmpty={(data) => data.length === 0}
+  emptyState={{
+    icon: InboxIcon,
+    title: "No channels",
+    description: "Create your first channel to get started"
+  }}
+  onRetry={refetch}
+>
+  {(channels) => (
+    <div>
+      {channels.map(channel => <ChannelCard key={channel.id} channel={channel} />)}
+    </div>
+  )}
+</DataWrapper>
+```
+
+**Features:**
+- Unified handling of loading/error/empty/data states
+- Type-safe with TypeScript generics
+- Render props pattern for flexible content rendering
+- Composes LoadingSpinner, ErrorMessage, and EmptyState
+- Custom isEmpty function for flexible empty detection
+
+### ConfirmDialog
+
+Location: `web/components/common/confirm-dialog.tsx`
+
+Confirmation dialog for destructive or important actions.
+
+**Props:**
+```typescript
+interface ConfirmDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description: string;
+  confirmLabel?: string;    // Default: "Continue"
+  cancelLabel?: string;     // Default: "Cancel"
+  onConfirm: () => void;
+  variant?: "default" | "destructive";  // Default: "default"
+}
+```
+
+**Usage:**
+```typescript
+import { ConfirmDialog } from "@/components/common/confirm-dialog";
+import { useState } from "react";
+
+const [open, setOpen] = useState(false);
+
+<>
+  <Button onClick={() => setOpen(true)}>Delete Channel</Button>
+  
+  <ConfirmDialog
+    open={open}
+    onOpenChange={setOpen}
+    title="Delete channel?"
+    description="This action cannot be undone. The channel will be permanently deleted."
+    confirmLabel="Delete"
+    variant="destructive"
+    onConfirm={() => {
+      deleteChannel(id);
+      setOpen(false);
+    }}
+  />
+</>
+```
+
+**Features:**
+- Uses shadcn AlertDialog component
+- Controlled open state
+- Destructive variant with red styling
+- Accessible with keyboard and screen reader support
+- Backdrop overlay
+
+### Common Components Index
+
+Location: `web/components/common/index.ts`
+
+Barrel export for all common components.
+
+**Usage:**
+```typescript
+import {
+  LoadingSpinner,
+  SkeletonCard,
+  SkeletonList,
+  ErrorMessage,
+  EmptyState,
+  DataWrapper,
+  ConfirmDialog,
+  ThemeToggle,
+} from "@/components/common";
 ```
 
 ## Navigation Components

@@ -15,5 +15,5 @@ This document lists all tasks associated with PBI 7.
 | 7-5 | [Configure Zustand for client state management](./7-5.md) | Done | Set up Zustand stores for UI and application state |
 | 7-6 | [Create routing structure and layouts](./7-6.md) | Review | Implement app routing for channels, library, and settings |
 | 7-7 | [Implement navigation and header components](./7-7.md) | Done | Build responsive navigation with header and mobile menu |
-| 7-8 | [Create common components (loading, error states)](./7-8.md) | Proposed | Build reusable loading skeletons and error message components |
+| 7-8 | [Create common components (loading, error states)](./7-8.md) | Done | Build reusable loading skeletons and error message components |
 | 7-9 | [Configure environment variables and metadata](./7-9.md) | Proposed | Set up env vars, favicon, metadata, and verify build |
