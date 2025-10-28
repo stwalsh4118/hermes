@@ -206,6 +206,119 @@ Get currently playing program (placeholder for PBI 4)
 }
 ```
 
+## Playlist Endpoints
+
+### GET /api/channels/:id/playlist
+Get a channel's playlist with media details
+
+**Response (200 OK):**
+```json
+{
+  "items": [
+    {
+      "id": "uuid-here",
+      "channel_id": "uuid-here",
+      "media_id": "uuid-here",
+      "position": 0,
+      "created_at": "2025-10-28T00:00:00Z",
+      "media": {
+        "id": "uuid-here",
+        "file_path": "/media/video.mp4",
+        "title": "Video Title",
+        "duration": 3600,
+        "video_codec": "h264",
+        "audio_codec": "aac",
+        "resolution": "1920x1080",
+        "created_at": "2025-10-28T00:00:00Z"
+      }
+    }
+  ],
+  "total_duration_seconds": 3600
+}
+```
+
+**Errors:**
+- `400 Bad Request` - Invalid channel UUID format
+- `404 Not Found` - Channel not found
+- `500 Internal Server Error` - Query failed
+
+### POST /api/channels/:id/playlist
+Add media to a channel's playlist
+
+**Request:**
+```json
+{
+  "media_id": "uuid-here",
+  "position": 0
+}
+```
+
+**Response (201 Created):**
+```json
+{
+  "id": "uuid-here",
+  "channel_id": "uuid-here",
+  "media_id": "uuid-here",
+  "position": 0,
+  "created_at": "2025-10-28T00:00:00Z"
+}
+```
+
+**Errors:**
+- `400 Bad Request` - Invalid UUID format or negative position
+- `404 Not Found` - Channel or media not found
+- `500 Internal Server Error` - Failed to add to playlist
+
+### DELETE /api/channels/:id/playlist/:item_id
+Remove an item from a channel's playlist
+
+**Response (200 OK):**
+```json
+{
+  "message": "Playlist item removed successfully"
+}
+```
+
+**Note:** Removing an item automatically reorders subsequent items by decrementing their positions.
+
+**Errors:**
+- `400 Bad Request` - Invalid UUID format
+- `404 Not Found` - Playlist item not found
+- `500 Internal Server Error` - Failed to remove from playlist
+
+### PUT /api/channels/:id/playlist/reorder
+Reorder items in a channel's playlist
+
+**Request:**
+```json
+{
+  "items": [
+    {
+      "item_id": "uuid-here",
+      "position": 0
+    },
+    {
+      "item_id": "uuid-here",
+      "position": 1
+    }
+  ]
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "message": "Playlist reordered successfully"
+}
+```
+
+**Note:** All position updates are applied atomically within a transaction.
+
+**Errors:**
+- `400 Bad Request` - Invalid UUID format, empty items array, or invalid positions
+- `404 Not Found` - One or more playlist items not found
+- `500 Internal Server Error` - Failed to reorder playlist
+
 ## Data Contracts
 
 See database schema in `docs/api-specs/database/database-api.md` for:
