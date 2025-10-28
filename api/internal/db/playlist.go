@@ -61,13 +61,21 @@ func (r *PlaylistItemRepository) GetByChannelID(ctx context.Context, channelID u
 func (r *PlaylistItemRepository) GetWithMedia(ctx context.Context, channelID uuid.UUID) ([]*models.PlaylistItem, error) {
 	var items []*models.PlaylistItem
 	result := r.db.WithContext(ctx).
-		Where("channel_id = ?", channelID.String()).
 		Preload("Media").
+		Where("channel_id = ?", channelID.String()).
 		Order("position ASC").
 		Find(&items)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to get playlist items with media: %w", MapGormError(result.Error))
 	}
+
+	// Verify all media items loaded successfully
+	for _, item := range items {
+		if item.Media == nil {
+			return nil, fmt.Errorf("media not found for playlist item %s (media_id: %s)", item.ID, item.MediaID)
+		}
+	}
+
 	return items, nil
 }
 
@@ -95,15 +103,27 @@ func (r *PlaylistItemRepository) DeleteByChannelID(ctx context.Context, channelI
 // Reorder updates positions for multiple playlist items in a transaction
 func (r *PlaylistItemRepository) Reorder(ctx context.Context, channelID uuid.UUID, items []ReorderItem) error {
 	return r.db.WithTransaction(ctx, func(tx *gorm.DB) error {
+		// First pass: set all positions to negative values to avoid unique constraint conflicts
+		for i, item := range items {
+			tempPosition := -1 - i // Use negative positions temporarily
+			result := tx.Model(&models.PlaylistItem{}).
+				Where("id = ? AND channel_id = ?", item.ID.String(), channelID.String()).
+				Update("position", tempPosition)
+			if result.Error != nil {
+				return fmt.Errorf("failed to set temp position for item %s: %w", item.ID, MapGormError(result.Error))
+			}
+			if result.RowsAffected == 0 {
+				return fmt.Errorf("playlist item %s not found or does not belong to channel", item.ID)
+			}
+		}
+
+		// Second pass: set final positions
 		for _, item := range items {
 			result := tx.Model(&models.PlaylistItem{}).
 				Where("id = ? AND channel_id = ?", item.ID.String(), channelID.String()).
 				Update("position", item.Position)
 			if result.Error != nil {
 				return fmt.Errorf("failed to update position for item %s: %w", item.ID, MapGormError(result.Error))
-			}
-			if result.RowsAffected == 0 {
-				return fmt.Errorf("playlist item %s not found or does not belong to channel", item.ID)
 			}
 		}
 		return nil

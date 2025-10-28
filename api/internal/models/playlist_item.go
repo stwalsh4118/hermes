@@ -14,8 +14,8 @@ type PlaylistItem struct {
 	Position  int       `json:"position" gorm:"type:integer;not null;column:position" validate:"gte=0"`
 	CreatedAt time.Time `json:"created_at" gorm:"type:datetime;default:CURRENT_TIMESTAMP;column:created_at"`
 
-	// Populated by joins, not stored in database
-	Media *Media `json:"media,omitempty" gorm:"-"`
+	// Populated by joins - GORM relationship
+	Media *Media `json:"media,omitempty" gorm:"foreignKey:MediaID;references:ID"`
 }
 
 // NewPlaylistItem creates a new PlaylistItem with generated UUID and timestamp
