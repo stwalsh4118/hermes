@@ -38,7 +38,36 @@ func (s *ChannelService) HasEmptyPlaylist(ctx context.Context, channelID uuid.UU
 
 ### PlaylistService (Go)
 
-Location: `internal/channel/playlist.go` (pending implementation)
+Location: `internal/channel/playlist.go`
+
+```go
+type PlaylistService struct {
+    repos *db.Repositories
+    db    *db.DB
+}
+
+func NewPlaylistService(database *db.DB, repos *db.Repositories) *PlaylistService
+
+// Playlist Operations
+func (s *PlaylistService) AddToPlaylist(ctx context.Context, channelID, mediaID uuid.UUID, position int) (*models.PlaylistItem, error)
+func (s *PlaylistService) RemoveFromPlaylist(ctx context.Context, itemID uuid.UUID) error
+func (s *PlaylistService) ReorderPlaylist(ctx context.Context, channelID uuid.UUID, items []db.ReorderItem) error
+func (s *PlaylistService) GetPlaylist(ctx context.Context, channelID uuid.UUID) ([]*models.PlaylistItem, error)
+func (s *PlaylistService) CalculateDuration(ctx context.Context, channelID uuid.UUID) (int64, error)
+```
+
+**Business Rules:**
+- Position: 0-indexed, must be non-negative
+- Add: Shifts items up if position occupied
+- Remove: Reorders subsequent items down
+- Reorder: Uses two-pass approach to avoid unique constraint violations
+- Transactions: Multi-step operations use database transactions
+
+**Errors:**
+- `ErrMediaNotFound` - Media doesn't exist
+- `ErrPlaylistItemNotFound` - Playlist item doesn't exist
+- `ErrInvalidPosition` - Position is negative
+- `ErrChannelNotFound` - Channel doesn't exist
 
 ## REST Endpoints
 

@@ -94,7 +94,7 @@ type PlaylistItem struct {
     MediaID   uuid.UUID `json:"media_id" gorm:"type:text;not null;column:media_id"`
     Position  int       `json:"position" gorm:"type:integer;not null;column:position"`
     CreatedAt time.Time `json:"created_at" gorm:"type:datetime;default:CURRENT_TIMESTAMP;column:created_at"`
-    Media     *Media    `json:"media,omitempty" gorm:"-"`  // Populated by joins
+    Media     *Media    `json:"media,omitempty" gorm:"foreignKey:MediaID;references:ID"`
 }
 ```
 
