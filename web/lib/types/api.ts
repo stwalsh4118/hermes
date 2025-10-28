@@ -76,6 +76,18 @@ export interface MediaQueryParams {
   show?: string;
 }
 
+export interface AddToPlaylistRequest {
+  media_id: string;
+  position: number;
+}
+
+export interface ReorderPlaylistRequest {
+  items: {
+    item_id: string;
+    position: number;
+  }[];
+}
+
 // Response types
 
 export interface ApiError {
@@ -120,5 +132,14 @@ export interface PaginatedMediaResponse {
 
 export interface MessageResponse {
   message: string;
+}
+
+export interface PlaylistResponse {
+  items: PlaylistItem[];
+  total_duration_seconds: number;
+}
+
+export interface ChannelsResponse {
+  channels: Channel[];
 }
 

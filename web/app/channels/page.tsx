@@ -1,12 +1,30 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
 import { RetroHeaderLayout } from "@/components/layout/retro-header-layout"
-import { useChannels } from "@/hooks/use-channels"
+import { useChannels, useDeleteChannel } from "@/hooks/use-channels"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ConfirmDialog } from "@/components/common/confirm-dialog"
 
 export default function ChannelsPage() {
   const { data: channels, isLoading, isError } = useChannels()
+  const deleteChannel = useDeleteChannel()
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [channelToDelete, setChannelToDelete] = useState<{ id: string; name: string } | null>(null)
+
+  const handleDeleteClick = (id: string, name: string) => {
+    setChannelToDelete({ id, name })
+    setDeleteDialogOpen(true)
+  }
+
+  const handleConfirmDelete = () => {
+    if (channelToDelete) {
+      deleteChannel.mutate(channelToDelete.id)
+    }
+    setDeleteDialogOpen(false)
+    setChannelToDelete(null)
+  }
 
   // Calculate stats
   const totalChannels = channels?.length || 0
@@ -99,12 +117,15 @@ export default function ChannelsPage() {
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-end gap-2">
-                            <Link href={`/channels/${channel.id}`}>
+                            <Link href={`/channels/${channel.id}/edit`}>
                               <button className="retro-button bg-accent text-accent-foreground hover:bg-accent/80 px-4 py-2 rounded-lg font-bold text-sm border-2 border-accent-foreground/20 shadow-[6px_6px_0_rgba(0,0,0,0.2)] hover:shadow-[3px_3px_0_rgba(0,0,0,0.2)] transition-all">
                                 EDIT
                               </button>
                             </Link>
-                            <button className="retro-button bg-destructive/20 text-destructive hover:bg-destructive/40 px-4 py-2 rounded-lg font-bold text-sm border-2 border-destructive shadow-[6px_6px_0_rgba(0,0,0,0.2)] hover:shadow-[3px_3px_0_rgba(0,0,0,0.2)] transition-all">
+                            <button
+                              onClick={() => handleDeleteClick(channel.id, channel.name)}
+                              className="retro-button bg-destructive/20 text-destructive hover:bg-destructive/40 px-4 py-2 rounded-lg font-bold text-sm border-2 border-destructive shadow-[6px_6px_0_rgba(0,0,0,0.2)] hover:shadow-[3px_3px_0_rgba(0,0,0,0.2)] transition-all"
+                            >
                               DELETE
                             </button>
                           </div>
@@ -151,6 +172,20 @@ export default function ChannelsPage() {
           )}
         </>
       )}
+
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete Channel"
+        description={
+          channelToDelete
+            ? `Are you sure you want to delete "${channelToDelete.name}"? This action cannot be undone and will remove all playlist items.`
+            : ""
+        }
+        confirmLabel="Delete"
+        onConfirm={handleConfirmDelete}
+        variant="destructive"
+      />
     </RetroHeaderLayout>
   )
 }

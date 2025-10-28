@@ -1,12 +1,17 @@
 import {
+  AddToPlaylistRequest,
   ApiError,
   Channel,
+  ChannelsResponse,
   CreateChannelRequest,
   HealthResponse,
   Media,
   MediaQueryParams,
   MessageResponse,
   PaginatedMediaResponse,
+  PlaylistItem,
+  PlaylistResponse,
+  ReorderPlaylistRequest,
   ScanProgress,
   ScanResponse,
   UpdateChannelRequest,
@@ -75,7 +80,8 @@ class ApiClient {
 
   // Channel endpoints
   async getChannels() {
-    return this.request<Channel[]>("/api/channels");
+    const response = await this.request<ChannelsResponse>("/api/channels");
+    return response.channels;
   }
 
   async getChannel(id: string) {
@@ -99,6 +105,41 @@ class ApiClient {
   async deleteChannel(id: string) {
     return this.request<MessageResponse>(`/api/channels/${id}`, {
       method: "DELETE",
+    });
+  }
+
+  // Playlist endpoints
+  async getPlaylist(channelId: string) {
+    return this.request<PlaylistResponse>(`/api/channels/${channelId}/playlist`);
+  }
+
+  async addToPlaylist(channelId: string, data: AddToPlaylistRequest) {
+    return this.request<PlaylistItem>(`/api/channels/${channelId}/playlist`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async bulkAddToPlaylist(channelId: string, items: AddToPlaylistRequest[]) {
+    return this.request<{ items: PlaylistItem[]; added: number; failed: number; total: number }>(
+      `/api/channels/${channelId}/playlist/bulk`,
+      {
+        method: "POST",
+        body: JSON.stringify({ items }),
+      }
+    );
+  }
+
+  async removeFromPlaylist(channelId: string, itemId: string) {
+    return this.request<MessageResponse>(`/api/channels/${channelId}/playlist/${itemId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async reorderPlaylist(channelId: string, data: ReorderPlaylistRequest) {
+    return this.request<MessageResponse>(`/api/channels/${channelId}/playlist/reorder`, {
+      method: "PUT",
+      body: JSON.stringify(data),
     });
   }
 
