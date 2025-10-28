@@ -8,10 +8,8 @@ interface MainLayoutProps {
 
 export function MainLayout({ children, className }: MainLayoutProps) {
   return (
-    <div className="min-h-screen bg-background">
-      <div className={cn("container mx-auto px-4 py-6", className)}>
-        {children}
-      </div>
+    <div className={cn("container mx-auto px-4 py-6", className)}>
+      {children}
     </div>
   );
 }
