@@ -73,3 +73,31 @@ export function useReorderPlaylist() {
   });
 }
 
+export function useBulkAddToPlaylist() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ 
+      channelId, 
+      items 
+    }: { 
+      channelId: string; 
+      items: AddToPlaylistRequest[] 
+    }) => apiClient.bulkAddToPlaylist(channelId, items),
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ 
+        queryKey: playlistKeys.list(variables.channelId) 
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: channelKeys.detail(variables.channelId) 
+      });
+      const message = `Added ${data.added} items to playlist` + 
+        (data.failed > 0 ? ` (${data.failed} failed)` : "");
+      toast.success(message);
+    },
+    onError: (error: ApiError) => {
+      toast.error(`Bulk add failed: ${error.message}`);
+    },
+  });
+}
+
