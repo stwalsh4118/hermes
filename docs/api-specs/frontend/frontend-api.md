@@ -787,13 +787,24 @@ const { data, isLoading, error } = usePlaylist(channelId);
 ```typescript
 import {
   useAddToPlaylist,
+  useBulkAddToPlaylist,
   useRemoveFromPlaylist,
   useReorderPlaylist,
 } from "@/hooks/use-playlist";
 
-// Add to playlist
+// Add single item to playlist
 const addMutation = useAddToPlaylist();
 addMutation.mutate({ channelId, data: { media_id, position } });
+
+// Bulk add multiple items (efficient for large selections)
+const bulkAddMutation = useBulkAddToPlaylist();
+bulkAddMutation.mutate({ 
+  channelId, 
+  items: [
+    { media_id: "uuid-1", position: 0 },
+    { media_id: "uuid-2", position: 1 }
+  ]
+});
 
 // Remove from playlist
 const removeMutation = useRemoveFromPlaylist();
@@ -1345,6 +1356,7 @@ interface MediaTreeProps {
   className?: string;
   height?: number;
   onSelectionChange?: (selectedMedia: Media[]) => void;
+  disabledMediaIds?: string[];
 }
 ```
 
@@ -1355,6 +1367,7 @@ interface MediaTreeProps {
 - Virtual scrolling for 1000+ items (@tanstack/react-virtual)
 - Keyboard navigation (arrows, space, enter) with aria-activedescendant
 - Search highlighting with auto-expand
+- Disabled items support (shows "ALREADY ADDED" badge)
 - Loading and empty states
 
 **Usage:**
@@ -1366,6 +1379,7 @@ import { MediaTree } from "@/components/media";
   searchQuery={searchTerm}
   height={600}
   onSelectionChange={(selected) => setSelected(selected)}
+  disabledMediaIds={existingPlaylistIds}
 />
 ```
 
