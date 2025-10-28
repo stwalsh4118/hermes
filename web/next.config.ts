@@ -1,8 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Separate build output to avoid conflicts with dev server
-  distDir: "build",
+  output: 'standalone', // Enables optimized Docker builds
+  // Use separate build directories for dev vs production to avoid conflicts
+  distDir: process.env.NODE_ENV === 'development' ? '.next-dev' : '.next',
 };
 
 export default nextConfig;
