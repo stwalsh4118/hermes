@@ -1,8 +1,16 @@
+import type { Metadata } from "next";
+import { createMetadata } from "@/lib/metadata";
 import { MainLayout } from "@/components/layout/main-layout";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { Plus } from "lucide-react";
+
+export const metadata: Metadata = createMetadata({
+  title: "Channels",
+  description: "Manage your virtual TV channels",
+  path: "/channels",
+});
 
 export default function ChannelsPage() {
   return (

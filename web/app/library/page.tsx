@@ -1,7 +1,15 @@
+import type { Metadata } from "next";
+import { createMetadata } from "@/lib/metadata";
 import { MainLayout } from "@/components/layout/main-layout";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
+
+export const metadata: Metadata = createMetadata({
+  title: "Media Library",
+  description: "Browse and manage your media files",
+  path: "/library",
+});
 
 export default function LibraryPage() {
   return (

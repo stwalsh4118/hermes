@@ -1,5 +1,13 @@
+import type { Metadata } from "next";
+import { createMetadata } from "@/lib/metadata";
 import { MainLayout } from "@/components/layout/main-layout";
 import { PageHeader } from "@/components/layout/page-header";
+
+export const metadata: Metadata = createMetadata({
+  title: "Settings",
+  description: "Configure your service preferences",
+  path: "/settings",
+});
 
 export default function SettingsPage() {
   return (

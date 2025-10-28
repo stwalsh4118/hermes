@@ -9,8 +9,31 @@ import { Toaster } from "@/components/ui/sonner";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Hermes - Virtual TV Channel Service",
-  description: "Manage and stream your own virtual TV channels",
+  title: {
+    default: "Hermes - Virtual TV Channel Service",
+    template: "%s | Hermes",
+  },
+  description: "Manage and stream your own virtual TV channels with Hermes. Organize your media library and broadcast continuous content streams.",
+  keywords: ["tv channels", "streaming", "media server", "iptv", "virtual tv"],
+  authors: [{ name: "Hermes Team" }],
+  creator: "Hermes",
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+    title: "Hermes - Virtual TV Channel Service",
+    description: "Manage and stream your own virtual TV channels",
+    siteName: "Hermes",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Hermes - Virtual TV Channel Service",
+    description: "Manage and stream your own virtual TV channels",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function RootLayout({
