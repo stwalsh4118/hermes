@@ -8,7 +8,7 @@ This document lists all tasks associated with PBI 3.
 
 | Task ID | Name | Status | Description |
 | :------ | :--- | :----- | :---------- |
-| 3-1 | [Implement Channel Service](./3-1.md) | Proposed | Business logic for channel CRUD operations with validation rules |
+| 3-1 | [Implement Channel Service](./3-1.md) | Done | Business logic for channel CRUD operations with validation rules |
 | 3-2 | [Implement Playlist Service](./3-2.md) | Proposed | Playlist management operations including add, remove, reorder, and validation |
 | 3-3 | [Implement Channel API Endpoints](./3-3.md) | Proposed | REST API endpoints for channel CRUD operations |
 | 3-4 | [Implement Playlist API Endpoints](./3-4.md) | Proposed | REST API endpoints for playlist management |
