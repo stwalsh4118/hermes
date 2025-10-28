@@ -147,3 +147,35 @@ func (r *MediaRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 	return nil
 }
+
+// ExistsByIDs checks which media IDs exist in the database
+// Returns a map where the key is the media ID and the value is true if it exists
+func (r *MediaRepository) ExistsByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]bool, error) {
+	if len(ids) == 0 {
+		return make(map[uuid.UUID]bool), nil
+	}
+
+	// Convert UUIDs to strings for the query
+	idStrings := make([]string, len(ids))
+	for i, id := range ids {
+		idStrings[i] = id.String()
+	}
+
+	// Query for existing IDs
+	var existingMedia []models.Media
+	result := r.db.WithContext(ctx).Select("id").Where("id IN ?", idStrings).Find(&existingMedia)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to check media existence: %w", MapGormError(result.Error))
+	}
+
+	// Build existence map
+	existsMap := make(map[uuid.UUID]bool, len(ids))
+	for _, id := range ids {
+		existsMap[id] = false
+	}
+	for i := range existingMedia {
+		existsMap[existingMedia[i].ID] = true
+	}
+
+	return existsMap, nil
+}

@@ -114,6 +114,110 @@ func (s *PlaylistService) AddToPlaylist(ctx context.Context, channelID, mediaID 
 	return newItem, nil
 }
 
+// BulkAddItem represents a single item to be added in a bulk operation
+type BulkAddItem struct {
+	MediaID  uuid.UUID
+	Position int
+}
+
+// BulkAddToPlaylist adds multiple media items to a playlist in a single transaction
+// This is much more efficient than calling AddToPlaylist multiple times
+func (s *PlaylistService) BulkAddToPlaylist(ctx context.Context, channelID uuid.UUID, items []BulkAddItem) ([]*models.PlaylistItem, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+
+	// Validate positions are non-negative
+	for i, item := range items {
+		if item.Position < 0 {
+			logger.Log.Warn().
+				Int("index", i).
+				Int("position", item.Position).
+				Msg("Bulk add to playlist failed: invalid position")
+			return nil, fmt.Errorf("failed to bulk add to playlist: position at index %d must be non-negative: %w", i, ErrInvalidPosition)
+		}
+	}
+
+	// Validate channel exists once
+	_, err := s.repos.Channels.GetByID(ctx, channelID)
+	if err != nil {
+		if db.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to bulk add to playlist: %w", ErrChannelNotFound)
+		}
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelID.String()).
+			Msg("Failed to validate channel existence for bulk add")
+		return nil, fmt.Errorf("failed to bulk add to playlist: %w", err)
+	}
+
+	// Validate all media items exist
+	mediaIDs := make([]uuid.UUID, len(items))
+	for i, item := range items {
+		mediaIDs[i] = item.MediaID
+	}
+
+	// Batch validate media existence with single query
+	existsMap, err := s.repos.Media.ExistsByIDs(ctx, mediaIDs)
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Msg("Failed to batch validate media existence")
+		return nil, fmt.Errorf("failed to bulk add to playlist: %w", err)
+	}
+
+	// Check if any media IDs don't exist
+	for _, mediaID := range mediaIDs {
+		if !existsMap[mediaID] {
+			logger.Log.Warn().
+				Str("media_id", mediaID.String()).
+				Msg("Bulk add to playlist failed: media not found")
+			return nil, fmt.Errorf("failed to bulk add to playlist: media %s not found: %w", mediaID.String(), ErrMediaNotFound)
+		}
+	}
+
+	// Create all items within a single transaction
+	var newItems []*models.PlaylistItem
+	err = s.db.WithTransaction(ctx, func(tx *gorm.DB) error {
+		// Build all items to insert
+		now := time.Now().UTC()
+		itemsToInsert := make([]*models.PlaylistItem, len(items))
+		for i, item := range items {
+			itemsToInsert[i] = &models.PlaylistItem{
+				ID:        uuid.New(),
+				ChannelID: channelID,
+				MediaID:   item.MediaID,
+				Position:  item.Position,
+				CreatedAt: now,
+			}
+		}
+
+		// Single batch INSERT with GORM
+		if err := tx.Create(&itemsToInsert).Error; err != nil {
+			return fmt.Errorf("failed to create playlist items: %w", err)
+		}
+
+		newItems = itemsToInsert
+		return nil
+	})
+
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelID.String()).
+			Int("item_count", len(items)).
+			Msg("Failed to bulk add media to playlist")
+		return nil, fmt.Errorf("failed to bulk add to playlist: %w", err)
+	}
+
+	logger.Log.Info().
+		Str("channel_id", channelID.String()).
+		Int("item_count", len(newItems)).
+		Msg("Media items bulk added to playlist successfully")
+
+	return newItems, nil
+}
+
 // RemoveFromPlaylist removes a playlist item and reorders remaining items
 func (s *PlaylistService) RemoveFromPlaylist(ctx context.Context, itemID uuid.UUID) error {
 	// Fetch the item to get its position and channel ID

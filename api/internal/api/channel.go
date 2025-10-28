@@ -57,6 +57,11 @@ type AddToPlaylistRequest struct {
 	Position int    `json:"position" binding:"gte=0"`
 }
 
+// BulkAddToPlaylistRequest represents a request to add multiple media items to a playlist
+type BulkAddToPlaylistRequest struct {
+	Items []AddToPlaylistRequest `json:"items" binding:"required,min=1"`
+}
+
 // ReorderPlaylistRequest represents a request to reorder playlist items
 type ReorderPlaylistRequest struct {
 	Items []ReorderItem `json:"items" binding:"required,min=1"`
@@ -613,6 +618,106 @@ func (h *ChannelHandler) AddToPlaylist(c *gin.Context) {
 	c.JSON(http.StatusCreated, toPlaylistItemResponse(item))
 }
 
+// BulkAddToPlaylist handles POST /api/channels/:id/playlist/bulk
+func (h *ChannelHandler) BulkAddToPlaylist(c *gin.Context) {
+	idStr := c.Param("id")
+
+	// Validate channel UUID
+	channelID, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "invalid_id",
+			Message: "Invalid channel ID format",
+		})
+		return
+	}
+
+	var req BulkAddToPlaylistRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Invalid request body: " + err.Error(),
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	// Convert request items to service layer format
+	bulkItems := make([]channel.BulkAddItem, 0, len(req.Items))
+	for _, item := range req.Items {
+		// Validate media UUID
+		mediaID, err := uuid.Parse(item.MediaID)
+		if err != nil {
+			logger.Log.Warn().
+				Str("channel_id", channelID.String()).
+				Str("media_id", item.MediaID).
+				Msg("Invalid media ID in bulk add request")
+			c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error:   "invalid_media_id",
+				Message: fmt.Sprintf("Invalid media ID format: %s", item.MediaID),
+			})
+			return
+		}
+
+		bulkItems = append(bulkItems, channel.BulkAddItem{
+			MediaID:  mediaID,
+			Position: item.Position,
+		})
+	}
+
+	// Use bulk add service method - single transaction with batch INSERT
+	playlistItems, err := h.playlistService.BulkAddToPlaylist(ctx, channelID, bulkItems)
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelID.String()).
+			Int("item_count", len(req.Items)).
+			Msg("Failed to bulk add media to playlist")
+
+		if errors.Is(err, channel.ErrChannelNotFound) {
+			c.JSON(http.StatusNotFound, ErrorResponse{
+				Error:   "channel_not_found",
+				Message: "Channel not found",
+			})
+			return
+		}
+
+		if errors.Is(err, channel.ErrMediaNotFound) {
+			c.JSON(http.StatusNotFound, ErrorResponse{
+				Error:   "media_not_found",
+				Message: "One or more media items not found",
+			})
+			return
+		}
+
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   "bulk_add_failed",
+			Message: "Failed to add items to playlist",
+		})
+		return
+	}
+
+	// Convert to response format
+	responses := make([]*PlaylistItemResponse, len(playlistItems))
+	for i, item := range playlistItems {
+		responses[i] = toPlaylistItemResponse(item)
+	}
+
+	logger.Log.Info().
+		Str("channel_id", channelID.String()).
+		Int("item_count", len(responses)).
+		Msg("Bulk add to playlist completed successfully")
+
+	c.JSON(http.StatusCreated, gin.H{
+		"items":  responses,
+		"added":  len(responses),
+		"failed": 0,
+		"total":  len(responses),
+	})
+}
+
 // RemoveFromPlaylist handles DELETE /api/channels/:id/playlist/:item_id
 func (h *ChannelHandler) RemoveFromPlaylist(c *gin.Context) {
 	channelIDStr := c.Param("id")
@@ -776,6 +881,7 @@ func SetupChannelRoutes(apiGroup *gin.RouterGroup, channelService *channel.Chann
 
 	// Playlist endpoints
 	apiGroup.GET("/channels/:id/playlist", handler.GetPlaylist)
+	apiGroup.POST("/channels/:id/playlist/bulk", handler.BulkAddToPlaylist)
 	apiGroup.POST("/channels/:id/playlist", handler.AddToPlaylist)
 	apiGroup.DELETE("/channels/:id/playlist/:item_id", handler.RemoveFromPlaylist)
 	apiGroup.PUT("/channels/:id/playlist/reorder", handler.ReorderPlaylist)
