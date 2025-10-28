@@ -1,6 +1,6 @@
 # Frontend Infrastructure API
 
-Last Updated: 2025-10-27 (TanStack Query and API client added)
+Last Updated: 2025-10-27 (Zustand stores added)
 
 ## Utilities
 
@@ -292,6 +292,294 @@ mediaKeys.scan(scanId)         // ["media", "scan", scanId]
 - Auto-polling for scan status (every 2s while running)
 - Type-safe request/response handling
 
+## State Management (Zustand)
+
+### Store Configuration
+
+Location: `web/lib/stores/`
+
+All stores use Zustand v5 with TypeScript, devtools middleware, and selective persistence.
+
+**Import Stores:**
+```typescript
+import {
+  useUIStore,
+  useFilterStore,
+  usePreferencesStore,
+  usePlayerStore,
+} from "@/lib/stores";
+
+// Import types
+import type { ViewMode, SortOrder } from "@/lib/stores";
+```
+
+### UI Store
+
+Location: `web/lib/stores/ui-store.ts`
+
+Manages ephemeral UI state (not persisted).
+
+**State & Actions:**
+```typescript
+interface UIState {
+  // Sidebar
+  sidebarOpen: boolean;
+  setSidebarOpen: (open: boolean) => void;
+  toggleSidebar: () => void;
+
+  // Mobile menu
+  mobileMenuOpen: boolean;
+  setMobileMenuOpen: (open: boolean) => void;
+  toggleMobileMenu: () => void;
+
+  // Modals
+  activeModal: string | null;
+  openModal: (modalId: string) => void;
+  closeModal: () => void;
+
+  // Loading states
+  isLoading: boolean;
+  setLoading: (loading: boolean) => void;
+}
+```
+
+**Usage Example:**
+```typescript
+import { useUIStore } from "@/lib/stores";
+
+function Sidebar() {
+  const { sidebarOpen, toggleSidebar } = useUIStore();
+
+  return (
+    <aside className={cn(sidebarOpen && "open")}>
+      <button onClick={toggleSidebar}>Toggle</button>
+    </aside>
+  );
+}
+```
+
+### Filter Store
+
+Location: `web/lib/stores/filter-store.ts`
+
+Manages filter and search state with selective persistence.
+
+**State & Actions:**
+```typescript
+interface FilterState {
+  // Media filters
+  mediaSearch: string;
+  mediaShowFilter: string | null;
+  setMediaSearch: (search: string) => void;
+  setMediaShowFilter: (show: string | null) => void;
+  clearMediaFilters: () => void;
+
+  // Channel filters
+  channelSearch: string;
+  setChannelSearch: (search: string) => void;
+  clearChannelFilters: () => void;
+}
+```
+
+**Persistence:**
+- Persists: `mediaShowFilter` (only sticky filters)
+- Does NOT persist: Search queries (for privacy/freshness)
+- Storage: localStorage as `filter-storage` with explicit `createJSONStorage(() => localStorage)` configuration
+
+**Usage Example:**
+```typescript
+import { useFilterStore } from "@/lib/stores";
+
+function MediaFilters() {
+  const { mediaSearch, mediaShowFilter, setMediaSearch, setMediaShowFilter } = useFilterStore();
+
+  return (
+    <>
+      <Input value={mediaSearch} onChange={(e) => setMediaSearch(e.target.value)} />
+      <Select value={mediaShowFilter} onValueChange={setMediaShowFilter}>
+        {/* options */}
+      </Select>
+    </>
+  );
+}
+```
+
+### Preferences Store
+
+Location: `web/lib/stores/preferences-store.ts`
+
+Manages user preferences with full persistence.
+
+**State & Actions:**
+```typescript
+type ViewMode = "grid" | "list";
+type SortOrder = "name" | "date" | "duration";
+
+interface PreferencesState {
+  // View preferences
+  mediaViewMode: ViewMode;
+  channelViewMode: ViewMode;
+  setMediaViewMode: (mode: ViewMode) => void;
+  setChannelViewMode: (mode: ViewMode) => void;
+
+  // Sort preferences
+  mediaSortOrder: SortOrder;
+  channelSortOrder: SortOrder;
+  setMediaSortOrder: (order: SortOrder) => void;
+  setChannelSortOrder: (order: SortOrder) => void;
+
+  // Player preferences
+  defaultVolume: number;
+  setDefaultVolume: (volume: number) => void;
+
+  // Reset
+  resetPreferences: () => void;
+}
+```
+
+**Defaults:**
+- mediaViewMode: `"grid"`
+- channelViewMode: `"grid"`
+- mediaSortOrder: `"name"`
+- channelSortOrder: `"name"`
+
+**Persistence:**
+- All preferences persisted to localStorage as `preferences-storage`
+- Explicit storage configuration: `createJSONStorage(() => localStorage)`
+- Survives page refreshes and browser restarts
+- `resetPreferences()` clears both in-memory state and localStorage
+
+**Usage Example:**
+```typescript
+import { usePreferencesStore } from "@/lib/stores";
+
+function ViewModeToggle() {
+  const { mediaViewMode, setMediaViewMode } = usePreferencesStore();
+
+  return (
+    <div>
+      <button onClick={() => setMediaViewMode("grid")}>Grid</button>
+      <button onClick={() => setMediaViewMode("list")}>List</button>
+    </div>
+  );
+}
+```
+
+### Player Store
+
+Location: `web/lib/stores/player-store.ts`
+
+Manages player state with volume persistence.
+
+**State & Actions:**
+```typescript
+interface PlayerState {
+  // Current playback
+  currentChannelId: string | null;
+  isPlaying: boolean;
+  volume: number;
+  isMuted: boolean;
+
+  // Actions
+  setCurrentChannel: (channelId: string | null) => void;
+  setPlaying: (playing: boolean) => void;
+  setVolume: (volume: number) => void;
+  setMuted: (muted: boolean) => void;
+  toggleMute: () => void;
+
+  // Player controls
+  play: (channelId: string) => void;
+  pause: () => void;
+  stop: () => void;
+}
+```
+
+**Initial State:**
+- currentChannelId: `null`
+- isPlaying: `false`
+- volume: `80` (persisted to localStorage)
+- isMuted: `false`
+
+**Persistence:**
+- Only `volume` is persisted (playback state is not)
+- Storage: localStorage as `player-storage`
+- Explicit storage configuration: `createJSONStorage(() => localStorage)`
+- Prevents unwanted auto-resume while preserving user's volume preference
+
+**Usage Example:**
+```typescript
+import { usePlayerStore } from "@/lib/stores";
+
+function PlayerControls() {
+  const { currentChannelId, isPlaying, volume, play, pause, setVolume } = usePlayerStore();
+
+  return (
+    <div>
+      <button onClick={() => play("channel-123")}>Play</button>
+      <button onClick={pause}>Pause</button>
+      <input type="range" value={volume} onChange={(e) => setVolume(Number(e.target.value))} />
+    </div>
+  );
+}
+```
+
+### Store Architecture Notes
+
+**Zustand v5 Features:**
+- Lightweight (~1KB)
+- No providers needed
+- Built-in TypeScript support
+- React 19 compatible
+
+**Middleware:**
+- `devtools`: Redux DevTools integration (set name for each store)
+- `persist`: localStorage persistence with `createJSONStorage(() => localStorage)` and selective partialize
+- **Important**: Must use explicit `storage: createJSONStorage(() => localStorage)` for Next.js 15 App Router compatibility
+
+**Best Practices:**
+1. Use stores directly in components (no context/providers)
+2. Selectively subscribe to minimize re-renders: `const name = useUIStore(state => state.sidebarOpen)`
+3. Check Redux DevTools for debugging state changes
+4. Don't persist sensitive or transient data
+5. Use TanStack Query for server state, Zustand for client state
+6. **Use `useHydration()` hook when displaying persisted values to prevent hydration flash**
+
+**Test Page:**
+Visit `/stores-test` to interact with all stores and verify persistence.
+
+### Hydration Hook
+
+Location: `web/hooks/use-hydration.ts`
+
+**useHydration() - Wait for Store Hydration:**
+```typescript
+function useHydration(): boolean
+```
+
+Returns `true` after client-side hydration is complete. Use this to prevent hydration mismatches when using persisted Zustand stores.
+
+**Usage Example:**
+```typescript
+import { useHydration } from "@/hooks/use-hydration";
+import { usePlayerStore } from "@/lib/stores";
+
+function PlayerComponent() {
+  const hydrated = useHydration();
+  const volume = usePlayerStore((state) => state.volume);
+
+  if (!hydrated) {
+    return <div>Loading...</div>;
+  }
+
+  return <div>Volume: {volume}%</div>;
+}
+```
+
+**Why This Is Needed:**
+- Prevents flash of default values before persisted state loads
+- Ensures server and client render the same initial state
+- Required for any component displaying persisted store values
+
 ### Mobile Detection
 
 Location: `web/hooks/use-mobile.ts`
@@ -341,4 +629,10 @@ Defines shadcn/ui configuration including style, colors, and paths. Used by shad
 7. Follow query key patterns for proper cache invalidation
 8. Mutations automatically handle toast notifications and cache updates
 9. Set `NEXT_PUBLIC_API_URL` in `.env.local` for local development
+10. Use TanStack Query for server state, Zustand for client state (don't mix)
+11. Import stores from `@/lib/stores` and use hooks directly in components
+12. Use selective subscriptions in Zustand to minimize re-renders
+13. Only persist user preferences, not sensitive or transient data
+14. Check Redux DevTools when debugging Zustand state
+15. Use `useHydration()` hook to prevent hydration flashes with persisted stores
 
