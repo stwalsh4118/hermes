@@ -1,3 +1,11 @@
+/**
+ * @deprecated This component has been replaced by MediaTree in task 9-2B.
+ * Use MediaTree for playlist management instead.
+ * This file is kept for reference only and will be removed in a future cleanup.
+ * 
+ * Migration: Replace <PlaylistEditor> with <MediaTree enableReordering={true} showFilterToggle={true} />
+ */
+
 "use client";
 
 import { useState, useCallback } from "react";
