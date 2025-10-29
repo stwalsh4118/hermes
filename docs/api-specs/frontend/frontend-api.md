@@ -32,6 +32,22 @@ cn("text-red-500", "text-blue-500"); // Results in text-blue-500
 <div className={cn("default-styles", className)} />
 ```
 
+### Format Utilities
+
+Location: `web/lib/utils/format.ts`
+
+**formatDuration() - Convert Seconds to Human-Readable Duration:**
+```typescript
+function formatDuration(seconds: number): string
+// Returns: "2h 30m", "45m", "1h", "0m"
+```
+
+**formatCount() - Pluralize Item Counts:**
+```typescript
+function formatCount(count: number, singular: string, plural?: string): string
+// Returns: "1 item", "5 items", "1 episode", "3 episodes"
+```
+
 ### Metadata Utility
 
 Location: `web/lib/metadata.ts`
@@ -1357,12 +1373,18 @@ interface MediaTreeProps {
   height?: number;
   onSelectionChange?: (selectedMedia: Media[]) => void;
   disabledMediaIds?: string[];
+  initialSelectedMediaIds?: string[];
+  enableReordering?: boolean;
+  showFilterToggle?: boolean;
 }
 ```
 
 **Features:**
 - Automatic grouping by show/season/episode
 - Checkbox selection with cascading (select parent = select all children)
+- "Show Only Added" toggle to filter to selected items
+- Playlist position indicators (#1, #2, #3) on selected items
+- Total duration and item count display in toolbar
 - Expand/collapse with state management
 - Virtual scrolling for 1000+ items (@tanstack/react-virtual)
 - Keyboard navigation (arrows, space, enter) with aria-activedescendant
@@ -1380,6 +1402,9 @@ import { MediaTree } from "@/components/media";
   height={600}
   onSelectionChange={(selected) => setSelected(selected)}
   disabledMediaIds={existingPlaylistIds}
+  initialSelectedMediaIds={playlistMediaIds}
+  showFilterToggle={true}
+  enableReordering={false}
 />
 ```
 
@@ -1392,12 +1417,15 @@ Location: `web/hooks/use-media-tree.ts`
 function useMediaTree(options: {
   media: Media[];
   searchQuery?: string;
+  showOnlySelected?: boolean;
+  initialSelectedMediaIds?: string[];
+  disabledMediaIds?: string[];
 }): UseMediaTreeResult
 ```
 
 **Returns:**
 - `tree`: Hierarchical MediaTreeNode[]
-- `flattenedNodes`: Flattened visible nodes for virtual scrolling
+- `flattenedNodes`: Flattened visible nodes for virtual scrolling (filtered if showOnlySelected)
 - `toggleNode`, `selectNode`: Node manipulation
 - `getSelectedMedia`, `getSelectedIds`: Selection queries
 - `expandAll`, `collapseAll`, `clearSelection`, `selectAll`: Bulk operations
@@ -1417,8 +1445,10 @@ interface MediaTreeNode {
   expanded: boolean;
   selected: boolean;
   indeterminate: boolean;
+  disabled: boolean;
   depth: number;
   parentId?: string;
+  playlistPosition?: number;
 }
 ```
 
