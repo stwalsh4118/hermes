@@ -8,8 +8,11 @@ import { MediaTreeNodeComponent } from "./media-tree-node";
 import { hasChildren } from "@/lib/types/media-tree";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/empty-state";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { InboxIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatDuration, formatCount } from "@/lib/utils/format";
 
 interface MediaTreeProps {
   /** Media items to display in tree */
@@ -32,6 +35,18 @@ interface MediaTreeProps {
   
   /** Media IDs that should be disabled (cannot be selected) */
   disabledMediaIds?: string[];
+  
+  /** Enable drag-and-drop reordering */
+  enableReordering?: boolean;
+  
+  /** Callback when items are reordered */
+  onReorder?: (orderedMedia: Media[]) => void;
+  
+  /** Show "Show Only Added" toggle */
+  showFilterToggle?: boolean;
+  
+  /** Initial selected media IDs (for pre-populating selection) */
+  initialSelectedMediaIds?: string[];
 }
 
 /**
@@ -46,11 +61,18 @@ export function MediaTree({
   height = 600,
   onSelectionChange,
   disabledMediaIds = [],
+  enableReordering = false,
+  onReorder,
+  showFilterToggle = false,
+  initialSelectedMediaIds = [],
 }: MediaTreeProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   
   // Track active node for keyboard navigation (aria-activedescendant pattern)
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  
+  // Track "Show Only Added" filter state
+  const [showOnlySelected, setShowOnlySelected] = useState(false);
 
   // Use the media tree hook
   const {
@@ -64,6 +86,8 @@ export function MediaTree({
     media,
     searchQuery,
     disabledMediaIds,
+    showOnlySelected,
+    initialSelectedMediaIds,
   });
 
   // Setup virtual scrolling
@@ -97,6 +121,11 @@ export function MediaTree({
       }
     }
   }, [getSelectedMedia, onSelectionChange, previousSelectionIds]);
+  
+  // Calculate selected media stats for display
+  const selectedMedia = getSelectedMedia();
+  const totalDuration = selectedMedia.reduce((sum, m) => sum + (m.duration || 0), 0);
+  const selectedCount = selectedMedia.length;
 
   // Keyboard navigation using aria-activedescendant pattern
   useEffect(() => {
@@ -253,24 +282,60 @@ export function MediaTree({
     >
       {/* Toolbar */}
       <div className="border-b-4 border-primary/30 px-4 py-3 bg-muted/20">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          {/* Left: Stats */}
           <div className="font-mono text-sm text-muted-foreground">
-            {flattenedNodes.length} items
+            <span>{flattenedNodes.length} items</span>
+            {selectedCount > 0 && (
+              <>
+                <span className="mx-2">•</span>
+                <span className="text-primary font-bold">
+                  {formatCount(selectedCount, "selected")} • {formatDuration(totalDuration)}
+                </span>
+              </>
+            )}
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={expandAll}
-              className="text-xs font-mono font-bold text-primary hover:text-primary/80 transition-colors"
-            >
-              EXPAND ALL
-            </button>
-            <span className="text-muted-foreground">|</span>
-            <button
-              onClick={collapseAll}
-              className="text-xs font-mono font-bold text-primary hover:text-primary/80 transition-colors"
-            >
-              COLLAPSE ALL
-            </button>
+          
+          {/* Right: Controls */}
+          <div className="flex items-center gap-4">
+            {/* Show Only Added Toggle */}
+            {showFilterToggle && selectedCount > 0 && (
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="show-only-added"
+                  checked={showOnlySelected}
+                  onCheckedChange={setShowOnlySelected}
+                  className="data-[state=checked]:bg-primary"
+                />
+                <Label
+                  htmlFor="show-only-added"
+                  className="text-xs font-mono font-bold text-foreground cursor-pointer whitespace-nowrap"
+                >
+                  SHOW ONLY ADDED
+                </Label>
+              </div>
+            )}
+            
+            {/* Expand/Collapse */}
+            {!showOnlySelected && (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={expandAll}
+                  className="text-xs font-mono font-bold text-primary hover:text-primary/80 transition-colors whitespace-nowrap"
+                >
+                  EXPAND ALL
+                </button>
+                <span className="text-muted-foreground">|</span>
+                <button
+                  type="button"
+                  onClick={collapseAll}
+                  className="text-xs font-mono font-bold text-primary hover:text-primary/80 transition-colors whitespace-nowrap"
+                >
+                  COLLAPSE ALL
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -317,6 +382,7 @@ export function MediaTree({
                   onSelect={selectNode}
                   searchQuery={searchQuery}
                   isActive={isActive}
+                  enableReordering={enableReordering}
                 />
               </div>
             );

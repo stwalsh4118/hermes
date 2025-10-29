@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, ChevronDown, Folder, Film } from "lucide-react";
+import { ChevronRight, ChevronDown, Folder, Film, GripVertical } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import {
@@ -17,6 +17,7 @@ interface MediaTreeNodeProps {
   onSelect: (nodeId: string, selected: boolean) => void;
   searchQuery?: string;
   isActive?: boolean;
+  enableReordering?: boolean;
 }
 
 /**
@@ -29,6 +30,7 @@ export function MediaTreeNodeComponent({
   onSelect,
   searchQuery = "",
   isActive = false,
+  enableReordering = false,
 }: MediaTreeNodeProps) {
   const hasChildNodes = hasChildren(node);
   const isEpisode = isEpisodeNode(node);
@@ -98,10 +100,27 @@ export function MediaTreeNodeComponent({
       aria-level={depth + 1}
       aria-disabled={node.disabled}
     >
+      {/* Drag Handle (only when reordering is enabled and item is selected) */}
+      {enableReordering && node.selected && (
+        <div className="w-5 h-5 flex items-center justify-center shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-primary transition-colors">
+          <GripVertical className="w-4 h-4" />
+        </div>
+      )}
+      
+      {/* Playlist Order Badge (only for selected items) */}
+      {node.selected && node.playlistPosition !== undefined && (
+        <div className="flex items-center justify-center shrink-0">
+          <span className="inline-flex items-center justify-center w-8 h-6 rounded bg-primary/10 border border-primary/30 font-mono text-xs font-bold text-primary">
+            #{node.playlistPosition + 1}
+          </span>
+        </div>
+      )}
+      
       {/* Expand/collapse chevron */}
       <div className="w-5 h-5 flex items-center justify-center shrink-0">
         {hasChildNodes ? (
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               handleToggle();
