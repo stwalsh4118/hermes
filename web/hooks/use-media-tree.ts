@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { Media } from "@/lib/types/api";
 import {
   MediaTreeNode,
@@ -18,6 +18,12 @@ interface UseMediaTreeOptions {
   
   /** Media IDs that should be disabled (cannot be selected) */
   disabledMediaIds?: string[];
+  
+  /** Show only selected items (filter to selected media) */
+  showOnlySelected?: boolean;
+  
+  /** Initial selected media IDs (for pre-populating selection) */
+  initialSelectedMediaIds?: string[];
 }
 
 /**
@@ -28,12 +34,20 @@ export function useMediaTree({
   media,
   searchQuery = "",
   disabledMediaIds = [],
+  showOnlySelected = false,
+  initialSelectedMediaIds = [],
 }: UseMediaTreeOptions): UseMediaTreeResult {
   // Track expanded node IDs
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   
-  // Track selected node IDs
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Track selected node IDs - initialize with episode IDs from initialSelectedMediaIds
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
+    const initial = new Set<string>();
+    initialSelectedMediaIds.forEach(mediaId => {
+      initial.add(`episode:${mediaId}`);
+    });
+    return initial;
+  });
 
   /**
    * Build the tree structure from flat media array
@@ -179,13 +193,31 @@ export function useMediaTree({
   }, [media, expandedIds, selectedIds, disabledMediaIds]);
 
   /**
-   * Filter and flatten tree based on search query
+   * Filter and flatten tree based on search query and showOnlySelected
    */
   const filteredAndFlattenedNodes = useMemo(() => {
     const flatten = (nodes: MediaTreeNode[]): FlattenedNode[] => {
       const result: FlattenedNode[] = [];
       
       const traverse = (node: MediaTreeNode) => {
+        // Check if node has selected descendants (for showOnlySelected filter)
+        const hasSelectedDescendant = (n: MediaTreeNode): boolean => {
+          if (n.type === "episode") {
+            return n.selected;
+          }
+          return n.children?.some((child) => 
+            child.selected || hasSelectedDescendant(child)
+          ) || false;
+        };
+        
+        // Apply showOnlySelected filter
+        if (showOnlySelected) {
+          const shouldShowForSelection = node.selected || hasSelectedDescendant(node);
+          if (!shouldShowForSelection) {
+            return;
+          }
+        }
+        
         // Check if node matches search
         const matchesSearch = searchQuery === "" || 
           node.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -213,8 +245,10 @@ export function useMediaTree({
         // Add this node
         result.push({ node, depth: node.depth });
         
-        // If expanded (or forced by search), add children
-        const shouldExpand = node.expanded || (searchQuery !== "" && hasMatchingDescendant(node));
+        // If expanded (or forced by search/filter), add children
+        const shouldExpand = node.expanded || 
+          (searchQuery !== "" && hasMatchingDescendant(node)) ||
+          (showOnlySelected && hasSelectedDescendant(node));
         
         if (shouldExpand && node.children) {
           node.children.forEach(traverse);
@@ -226,7 +260,7 @@ export function useMediaTree({
     };
     
     return flatten(tree);
-  }, [tree, searchQuery]);
+  }, [tree, searchQuery, showOnlySelected]);
 
   /**
    * Toggle expand/collapse state of a node
@@ -335,6 +369,33 @@ export function useMediaTree({
     collectIds(tree);
     return ids;
   }, [tree, selectedIds]);
+
+  /**
+   * Calculate playlist positions for selected nodes (depth-first traversal)
+   * Mutates the tree to add playlistPosition to selected episode nodes
+   */
+  const calculatePlaylistPositions = useCallback(() => {
+    let position = 0;
+    
+    const assignPositions = (nodes: MediaTreeNode[]) => {
+      nodes.forEach((node) => {
+        if (node.type === "episode" && node.selected && node.media) {
+          node.playlistPosition = position;
+          position++;
+        }
+        if (node.children) {
+          assignPositions(node.children);
+        }
+      });
+    };
+    
+    assignPositions(tree);
+  }, [tree]);
+  
+  // Calculate positions whenever selection changes
+  useEffect(() => {
+    calculatePlaylistPositions();
+  }, [selectedIds, calculatePlaylistPositions]);
 
   /**
    * Expand all nodes

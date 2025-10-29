@@ -44,6 +44,9 @@ export interface MediaTreeNode {
   
   /** Parent node ID (undefined for root nodes) */
   parentId?: string;
+  
+  /** Position in the playlist (for selected episode nodes, 0-indexed) */
+  playlistPosition?: number;
 }
 
 /**
