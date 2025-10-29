@@ -8,10 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlaylistEditor } from "./playlist-editor";
+import { MediaTree } from "@/components/media";
 import { ChannelPreview } from "./channel-preview";
 import { Channel, PlaylistItem, Media } from "@/lib/types/api";
-import { useAddToPlaylist, useRemoveFromPlaylist, useReorderPlaylist } from "@/hooks/use-playlist";
+import { useMedia } from "@/hooks/use-media";
+import { useAddToPlaylist, useRemoveFromPlaylist, useReorderPlaylist, useBulkAddToPlaylist } from "@/hooks/use-playlist";
+import { toast } from "sonner";
 
 const channelFormSchema = z.object({
   name: z.string().min(1, "Channel name is required").max(100, "Channel name must be 100 characters or less"),
@@ -43,10 +45,16 @@ export const ChannelForm = memo(function ChannelForm({
   isSubmitting = false,
 }: ChannelFormProps) {
   const [localPlaylist, setLocalPlaylist] = useState<PlaylistItem[]>(playlist);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+
+  // Fetch all media for the tree
+  const { data: mediaResponse, isLoading: isLoadingMedia } = useMedia();
+  const allMedia = mediaResponse?.items || [];
 
   const addToPlaylist = useAddToPlaylist();
   const removeFromPlaylist = useRemoveFromPlaylist();
   const reorderPlaylist = useReorderPlaylist();
+  const bulkAddToPlaylist = useBulkAddToPlaylist();
 
   const {
     register,
@@ -132,6 +140,52 @@ export const ChannelForm = memo(function ChannelForm({
       setLocalPlaylist(localPlaylist.filter((item) => item.id !== itemId));
     }
   }, [mode, channel, removeFromPlaylist, localPlaylist]);
+
+  // Handle MediaTree selection changes
+  const handleTreeSelectionChange = useCallback((selectedMedia: Media[]) => {
+    // Skip the initial load to avoid spurious API calls
+    if (isInitialLoad) {
+      setIsInitialLoad(false);
+      return;
+    }
+    
+    if (mode === "edit" && channel) {
+      // In edit mode, calculate what was added/removed and update via API
+      const currentMediaIds = new Set(localPlaylist.map(item => item.media_id));
+      const selectedMediaIds = new Set(selectedMedia.map(m => m.id));
+      
+      // Find newly added items
+      const addedMedia = selectedMedia.filter(m => !currentMediaIds.has(m.id));
+      
+      // Find removed items
+      const removedItems = localPlaylist.filter(item => !selectedMediaIds.has(item.media_id));
+      
+      // Bulk add new items
+      if (addedMedia.length > 0) {
+        const items = addedMedia.map((media, index) => ({
+          media_id: media.id,
+          position: localPlaylist.length + index,
+        }));
+        bulkAddToPlaylist.mutate({ channelId: channel.id, items });
+      }
+      
+      // Remove unselected items
+      removedItems.forEach(item => {
+        removeFromPlaylist.mutate({ channelId: channel.id, itemId: item.id });
+      });
+    } else {
+      // In create mode, update local state
+      const newPlaylist: PlaylistItem[] = selectedMedia.map((media, index) => ({
+        id: `temp-${media.id}`,
+        channel_id: channel?.id || "",
+        media_id: media.id,
+        position: index,
+        created_at: new Date().toISOString(),
+        media,
+      }));
+      setLocalPlaylist(newPlaylist);
+    }
+  }, [mode, channel, localPlaylist, bulkAddToPlaylist, removeFromPlaylist, isInitialLoad]);
 
   const handleFormSubmit = (data: ChannelFormData) => {
     // Convert datetime-local to ISO string
@@ -255,15 +309,27 @@ export const ChannelForm = memo(function ChannelForm({
           </div>
         </div>
 
-        {/* Playlist Editor */}
+        {/* Media Tree for Playlist Management */}
         <div className="lg:col-span-2">
-          <PlaylistEditor
-            items={localPlaylist}
-            channelId={channel?.id || ""}
-            onReorder={handlePlaylistReorder}
-            onAdd={handleAddToPlaylist}
-            onRemove={handleRemoveFromPlaylist}
-          />
+          <Card className="border-4 border-primary bg-card shadow-[8px_8px_0_rgba(0,0,0,0.6)]">
+            <CardHeader>
+              <CardTitle className="vcr-text uppercase tracking-wider">
+                Playlist Content
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <MediaTree
+                media={allMedia}
+                isLoading={isLoadingMedia}
+                height={600}
+                enableReordering={false}
+                showFilterToggle={true}
+                onSelectionChange={handleTreeSelectionChange}
+                disabledMediaIds={[]}
+                initialSelectedMediaIds={localPlaylist.map(item => item.media_id)}
+              />
+            </CardContent>
+          </Card>
         </div>
       </div>
 
