@@ -305,6 +305,385 @@ var (
 )
 ```
 
+## HLS Playlist Generation
+
+Location: `internal/streaming/playlist.go`
+
+### Playlist Type Constants
+
+```go
+const (
+    PlaylistTypeEvent = "EVENT"  // Live streaming playlist
+    PlaylistTypeVOD   = "VOD"    // Video on demand playlist
+)
+```
+
+### Data Structures
+
+#### MasterPlaylist
+
+```go
+type MasterPlaylist struct {
+    Variants []PlaylistVariant
+}
+
+type PlaylistVariant struct {
+    Bandwidth  int    // Video + audio bitrate in bits per second
+    Resolution string // Format: "1920x1080"
+    Path       string // Relative path to media playlist
+}
+```
+
+Represents an HLS master playlist with multiple quality variants for adaptive bitrate streaming.
+
+#### MediaPlaylist
+
+```go
+type MediaPlaylist struct {
+    TargetDuration int       // Maximum segment duration in seconds
+    MediaSequence  int       // Starting sequence number
+    Segments       []Segment // List of segments
+    PlaylistType   string    // "EVENT" or "VOD"
+}
+
+type Segment struct {
+    Duration float64 // Segment duration in seconds
+    Path     string  // Filename or relative path to segment
+}
+```
+
+Represents an HLS media playlist containing segment information.
+
+#### MediaPlaylistConfig
+
+```go
+type MediaPlaylistConfig struct {
+    TargetDuration int    // Maximum segment duration in seconds
+    MediaSequence  int    // Starting sequence number
+    PlaylistType   string // "EVENT" or "VOD"
+    MaxSegments    int    // Maximum number of segments to keep (sliding window)
+}
+```
+
+Configuration for media playlist generation.
+
+### GenerateMasterPlaylist
+
+```go
+func GenerateMasterPlaylist(variants []PlaylistVariant) (string, error)
+```
+
+Generates an HLS-compliant master playlist from quality variants.
+
+**Parameters:**
+- `variants`: List of quality variants with bandwidth, resolution, and playlist path
+
+**Returns:**
+- `string`: Formatted HLS master playlist content
+- `error`: Validation errors (empty variants, invalid bandwidth/resolution/path)
+
+**Generated Format:**
+```m3u8
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-STREAM-INF:BANDWIDTH=5192000,RESOLUTION=1920x1080
+1080p.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=3192000,RESOLUTION=1280x720
+720p.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=1692000,RESOLUTION=854x480
+480p.m3u8
+```
+
+**Usage:**
+```go
+variants := []streaming.PlaylistVariant{
+    {
+        Bandwidth:  5192000,
+        Resolution: "1920x1080",
+        Path:       "1080p.m3u8",
+    },
+    {
+        Bandwidth:  3192000,
+        Resolution: "1280x720",
+        Path:       "720p.m3u8",
+    },
+    {
+        Bandwidth:  1692000,
+        Resolution: "854x480",
+        Path:       "480p.m3u8",
+    },
+}
+
+playlist, err := streaming.GenerateMasterPlaylist(variants)
+if err != nil {
+    return err
+}
+```
+
+### GenerateMediaPlaylist
+
+```go
+func GenerateMediaPlaylist(segments []Segment, config MediaPlaylistConfig) (string, error)
+```
+
+Generates an HLS-compliant media playlist from segments.
+
+**Parameters:**
+- `segments`: List of video segments with duration and path
+- `config`: Configuration including target duration, media sequence, playlist type, max segments
+
+**Returns:**
+- `string`: Formatted HLS media playlist content
+- `error`: Validation errors (invalid playlist type)
+
+**Features:**
+- Auto-calculates target duration if not provided (ceiling of max segment duration)
+- Supports sliding window (keeps only last N segments if MaxSegments > 0)
+- Automatically updates MediaSequence when segments are dropped (MediaSequence += droppedSegments)
+- Adds `#EXT-X-ENDLIST` tag for VOD playlists
+- EVENT playlists remain open for new segments
+
+**Generated Format (EVENT):**
+```m3u8
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:6
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-PLAYLIST-TYPE:EVENT
+#EXTINF:6.0,
+segment_000.ts
+#EXTINF:6.0,
+segment_001.ts
+#EXTINF:6.0,
+segment_002.ts
+```
+
+**Generated Format (VOD):**
+```m3u8
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:6
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXTINF:6.0,
+segment_000.ts
+#EXTINF:6.0,
+segment_001.ts
+#EXT-X-ENDLIST
+```
+
+**Usage:**
+```go
+segments := []streaming.Segment{
+    {Duration: 6.0, Path: "segment_000.ts"},
+    {Duration: 6.0, Path: "segment_001.ts"},
+    {Duration: 6.0, Path: "segment_002.ts"},
+}
+
+config := streaming.MediaPlaylistConfig{
+    TargetDuration: 6,
+    MediaSequence:  0,
+    PlaylistType:   streaming.PlaylistTypeEvent,
+    MaxSegments:    10, // Sliding window size
+}
+
+playlist, err := streaming.GenerateMediaPlaylist(segments, config)
+if err != nil {
+    return err
+}
+```
+
+### DiscoverSegments
+
+```go
+func DiscoverSegments(directory string) ([]Segment, error)
+```
+
+Scans a directory and discovers all HLS segment files (.ts).
+
+**Parameters:**
+- `directory`: Path to directory containing segment files
+
+**Returns:**
+- `[]Segment`: Sorted list of discovered segments (by sequence number)
+- `error`: Directory access errors (invalid directory, not a directory)
+
+**Behavior:**
+- Returns empty list (not error) if directory doesn't exist
+- Parses segment filenames matching pattern: `*_segment_NNN.ts`
+- Sorts segments by sequence number
+- Assigns default duration (6 seconds) to each segment
+- Ignores non-segment files
+
+**Usage:**
+```go
+segments, err := streaming.DiscoverSegments("/streams/channel1/1080p")
+if err != nil {
+    return err
+}
+
+// Use discovered segments to generate playlist
+config := streaming.MediaPlaylistConfig{
+    TargetDuration: 6,
+    MediaSequence:  0,
+    PlaylistType:   streaming.PlaylistTypeEvent,
+}
+playlist, err := streaming.GenerateMediaPlaylist(segments, config)
+```
+
+### WritePlaylistAtomic
+
+```go
+func WritePlaylistAtomic(path string, content string) error
+```
+
+Writes a playlist to a file atomically to prevent partial writes.
+
+**Parameters:**
+- `path`: Full path to playlist file
+- `content`: Playlist content to write
+
+**Returns:**
+- `error`: File operation errors (directory creation, write, sync, rename)
+
+**Atomic Write Process:**
+1. Creates directory if it doesn't exist
+2. Writes content to temporary file in same directory
+3. Syncs temp file to disk
+4. Atomically renames temp file to final path
+5. Cleans up temp file on error
+
+**Thread Safety:**
+- Safe for concurrent writes to different files
+- Atomic rename ensures clients never read partial content
+
+**Usage:**
+```go
+playlist, _ := streaming.GenerateMasterPlaylist(variants)
+if err := streaming.WritePlaylistAtomic("/streams/channel1/master.m3u8", playlist); err != nil {
+    return fmt.Errorf("failed to write playlist: %w", err)
+}
+```
+
+### ValidateMasterPlaylist
+
+```go
+func ValidateMasterPlaylist(content string) error
+```
+
+Validates an HLS master playlist for RFC 8216 compliance.
+
+**Parameters:**
+- `content`: Master playlist content to validate
+
+**Returns:**
+- `error`: Validation errors (missing required tags, invalid format)
+
+**Checks:**
+- Presence of `#EXTM3U` header
+- Presence of `#EXT-X-VERSION` tag
+- At least one `#EXT-X-STREAM-INF` tag
+- Each stream-inf has BANDWIDTH and RESOLUTION attributes
+
+**Usage:**
+```go
+if err := streaming.ValidateMasterPlaylist(playlistContent); err != nil {
+    log.Warn("Invalid master playlist: %v", err)
+}
+```
+
+### ValidateMediaPlaylist
+
+```go
+func ValidateMediaPlaylist(content string) error
+```
+
+Validates an HLS media playlist for RFC 8216 compliance.
+
+**Parameters:**
+- `content`: Media playlist content to validate
+
+**Returns:**
+- `error`: Validation errors (missing required tags)
+
+**Checks:**
+- Presence of `#EXTM3U` header
+- Presence of `#EXT-X-VERSION` tag
+- Presence of `#EXT-X-TARGETDURATION` tag
+- Presence of `#EXT-X-MEDIA-SEQUENCE` tag
+
+**Usage:**
+```go
+if err := streaming.ValidateMediaPlaylist(playlistContent); err != nil {
+    log.Warn("Invalid media playlist: %v", err)
+}
+```
+
+### GetBandwidthForQuality
+
+```go
+func GetBandwidthForQuality(quality string) (int, error)
+```
+
+Returns the total bandwidth in bits per second for a quality level.
+
+**Parameters:**
+- `quality`: Quality level (Quality1080p, Quality720p, Quality480p)
+
+**Returns:**
+- `int`: Bandwidth in bps (video + audio)
+- `error`: Invalid quality error
+
+**Bandwidths:**
+- 1080p: 5,192,000 bps (5000k video + 192k audio)
+- 720p: 3,192,000 bps (3000k video + 192k audio)
+- 480p: 1,692,000 bps (1500k video + 192k audio)
+
+**Usage:**
+```go
+bandwidth, err := streaming.GetBandwidthForQuality(streaming.Quality1080p)
+// bandwidth: 5192000
+```
+
+### GetResolutionForQuality
+
+```go
+func GetResolutionForQuality(quality string) (string, error)
+```
+
+Returns the resolution string for a quality level.
+
+**Parameters:**
+- `quality`: Quality level (Quality1080p, Quality720p, Quality480p)
+
+**Returns:**
+- `string`: Resolution in "WIDTHxHEIGHT" format
+- `error`: Invalid quality error
+
+**Resolutions:**
+- 1080p: "1920x1080"
+- 720p: "1280x720"
+- 480p: "854x480"
+
+**Usage:**
+```go
+resolution, err := streaming.GetResolutionForQuality(streaming.Quality720p)
+// resolution: "1280x720"
+```
+
+### Errors
+
+```go
+var (
+    ErrEmptyVariants       = errors.New("playlist must have at least one variant")
+    ErrInvalidBandwidth    = errors.New("bandwidth must be positive")
+    ErrInvalidResolution   = errors.New("invalid resolution format")
+    ErrInvalidPlaylistType = errors.New("invalid playlist type (must be EVENT or VOD)")
+    ErrMissingRequiredTag  = errors.New("missing required HLS tag")
+    ErrInvalidDirectory    = errors.New("invalid directory path")
+)
+```
+
 ## Stream State Machine
 
 Location: `internal/streaming/types.go`
