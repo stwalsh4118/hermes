@@ -89,10 +89,11 @@ dbPath := cfg.Database.Path
 
 ```go
 type Config struct {
-    Server   ServerConfig
-    Database DatabaseConfig
-    Logging  LoggingConfig
-    Media    MediaConfig
+    Server    ServerConfig
+    Database  DatabaseConfig
+    Logging   LoggingConfig
+    Media     MediaConfig
+    Streaming StreamingConfig
 }
 
 type ServerConfig struct {
@@ -116,6 +117,15 @@ type LoggingConfig struct {
 type MediaConfig struct {
     LibraryPath      string
     SupportedFormats []string // Default: ["mp4", "mkv", "avi", "mov"]
+}
+
+type StreamingConfig struct {
+    HardwareAccel      string // Default: "auto" - Options: none, nvenc, qsv, vaapi, videotoolbox, auto
+    SegmentDuration    int    // Default: 6 - HLS segment duration in seconds
+    PlaylistSize       int    // Default: 10 - Number of segments in playlist
+    SegmentPath        string // Default: "./data/streams" - Directory for segments
+    GracePeriodSeconds int    // Default: 30 - Keep-alive after last client
+    CleanupInterval    int    // Default: 60 - Cleanup interval in seconds
 }
 ```
 
@@ -141,6 +151,14 @@ HERMES_LOGGING_PRETTY=true
 # Media configuration
 HERMES_MEDIA_LIBRARYPATH=/media/videos
 HERMES_MEDIA_SUPPORTEDFORMATS=mp4,mkv,avi
+
+# Streaming configuration
+HERMES_STREAMING_HARDWAREACCEL=auto
+HERMES_STREAMING_SEGMENTDURATION=6
+HERMES_STREAMING_PLAYLISTSIZE=10
+HERMES_STREAMING_SEGMENTPATH=./data/streams
+HERMES_STREAMING_GRACEPERIODSECONDS=30
+HERMES_STREAMING_CLEANUPINTERVAL=60
 ```
 
 ### .env File Support
@@ -181,6 +199,14 @@ media:
     - mkv
     - avi
     - mov
+
+streaming:
+  hardwareaccel: "auto"
+  segmentduration: 6
+  playlistsize: 10
+  segmentpath: "./data/streams"
+  graceperiodseconds: 30
+  cleanupinterval: 60
 ```
 
 ### Configuration Validation
@@ -189,6 +215,12 @@ The `Load()` function automatically validates configuration:
 - Server port must be between 1-65535
 - All timeout values (ReadTimeout, WriteTimeout, ConnectionTimeout) must be > 0
 - Log level must be: debug, info, warn, error
+- Hardware acceleration must be: none, nvenc, qsv, vaapi, videotoolbox, auto
+- Segment duration must be > 0
+- Playlist size must be > 0
+- Grace period must be >= 0
+- Cleanup interval must be > 0
+- Segment path cannot be empty
 - Returns error if validation fails
 
 **Example Error Handling:**
