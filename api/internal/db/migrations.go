@@ -2,11 +2,13 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/source/file" // Blank import required for file source driver
+
 	"github.com/golang-migrate/migrate/v4/database/sqlite3"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
 // RunMigrations executes database migrations from the specified path.
@@ -45,7 +47,7 @@ func RunMigrations(db *sql.DB, migrationsPath string) error {
 		return fmt.Errorf("failed to create migration instance: %w", err)
 	}
 
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 

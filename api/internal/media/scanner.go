@@ -28,6 +28,7 @@ const (
 // ScanStatus represents the current state of a media scan
 type ScanStatus string
 
+// Media scan status constants
 const (
 	ScanStatusRunning   ScanStatus = "running"
 	ScanStatusCompleted ScanStatus = "completed"
@@ -154,7 +155,7 @@ func (s *Scanner) GetScanProgress(scanID string) (*ScanProgress, error) {
 	progress.mu.RLock()
 	defer progress.mu.RUnlock()
 
-	copy := &ScanProgress{
+	progressCopy := &ScanProgress{
 		ScanID:         progress.ScanID,
 		Status:         progress.Status,
 		TotalFiles:     progress.TotalFiles,
@@ -167,7 +168,7 @@ func (s *Scanner) GetScanProgress(scanID string) (*ScanProgress, error) {
 		Errors:         append([]string{}, progress.Errors...), // Copy slice
 	}
 
-	return copy, nil
+	return progressCopy, nil
 }
 
 // CancelScan cancels a running scan
@@ -278,7 +279,7 @@ func (s *Scanner) findVideoFiles(ctx context.Context, dirPath string, progress *
 		return nil
 	})
 
-	if err != nil && err != context.Canceled {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		errMsg := fmt.Sprintf("directory walk failed: %v", err)
 		logger.Log.Error().Err(err).Msg("Directory walk failed")
 		progress.mu.Lock()

@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -26,7 +27,7 @@ func (r *SettingsRepository) Get(ctx context.Context) (*models.Settings, error) 
 
 	// If not found, create with defaults
 	if result.Error != nil {
-		if MapGormError(result.Error) == ErrNotFound {
+		if errors.Is(MapGormError(result.Error), ErrNotFound) {
 			defaultSettings := models.DefaultSettings()
 			if err := r.db.WithContext(ctx).Create(defaultSettings).Error; err != nil {
 				return nil, fmt.Errorf("failed to create default settings: %w", MapGormError(err))
