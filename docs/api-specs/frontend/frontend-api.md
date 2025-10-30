@@ -1,6 +1,6 @@
 # Frontend Infrastructure API
 
-Last Updated: 2025-10-30 (Library scanner component and hook added)
+Last Updated: 2025-10-30 (Media detail modal and format utilities added)
 
 ## Utilities
 
@@ -46,6 +46,34 @@ function formatDuration(seconds: number): string
 ```typescript
 function formatCount(count: number, singular: string, plural?: string): string
 // Returns: "1 item", "5 items", "1 episode", "3 episodes"
+```
+
+### Media Format Utilities
+
+Location: `web/lib/utils/media-format.ts`
+
+**formatDurationDetailed() - Detailed Duration Format:**
+```typescript
+function formatDurationDetailed(seconds: number): string
+// Returns: "1:32:45" or "45:30"
+```
+
+**formatFileSize() - Human-Readable File Size:**
+```typescript
+function formatFileSize(bytes: number | null | undefined): string
+// Returns: "1.2 GB", "345 MB", "Unknown"
+```
+
+**formatDate() - Format ISO Date String:**
+```typescript
+function formatDate(dateString: string): string
+// Returns: "Oct 28, 2025 3:45 PM"
+```
+
+**determineTranscoding() - Check Codec Compatibility:**
+```typescript
+function determineTranscoding(media: Media): { compatible: boolean; reasons: string[] }
+// Compatible: h264 + aac, otherwise lists specific reasons
 ```
 
 ### Metadata Utility
@@ -1419,6 +1447,7 @@ interface MediaTreeProps {
   initialSelectedMediaIds?: string[];
   enableReordering?: boolean;
   showFilterToggle?: boolean;
+  onEpisodeClick?: (media: Media) => void;
 }
 ```
 
@@ -1448,6 +1477,7 @@ import { MediaTree } from "@/components/media";
   initialSelectedMediaIds={playlistMediaIds}
   showFilterToggle={true}
   enableReordering={false}
+  onEpisodeClick={(media) => openDetailModal(media)}
 />
 ```
 
@@ -1480,6 +1510,42 @@ import { LibraryScanner } from "@/components/media";
 <LibraryScanner 
   onScanComplete={() => refetch()} 
   defaultPath="/media/videos" 
+/>
+```
+
+### MediaDetailModal
+
+Modal for displaying complete media metadata, file information, and transcoding requirements.
+
+**Props:**
+```typescript
+interface MediaDetailModalProps {
+  media: Media | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onEdit: () => void;
+  onDeleted: () => void;
+}
+```
+
+**Features:**
+- Complete metadata display (title, show, season, episode, duration, resolution, codecs, date added, file size)
+- File information with copy-to-clipboard
+- Transcoding requirements with color-coded badges (green = compatible, orange = requires transcoding)
+- Delete functionality with confirmation dialog
+- Edit button for metadata editing integration
+- Responsive design with retro styling
+
+**Usage:**
+```typescript
+import { MediaDetailModal } from "@/components/media";
+
+<MediaDetailModal
+  media={selectedMedia}
+  open={showModal}
+  onOpenChange={setShowModal}
+  onEdit={() => openEditorModal()}
+  onDeleted={() => refetch()}
 />
 ```
 
