@@ -1549,6 +1549,41 @@ import { MediaDetailModal } from "@/components/media";
 />
 ```
 
+### MediaEditorModal
+
+Modal for editing media metadata with form validation and unsaved changes protection.
+
+**Props:**
+```typescript
+interface MediaEditorModalProps {
+  media: Media | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved: (updatedMedia: Media) => void;
+}
+```
+
+**Features:**
+- Form fields: title (required), show name (optional), season (optional positive integer), episode (optional positive integer)
+- Real-time validation with zod and react-hook-form
+- Inline error messages
+- Unsaved changes detection with confirmation dialog
+- Loading states during save
+- API integration with useUpdateMedia hook
+- Toast notifications for success/error
+
+**Usage:**
+```typescript
+import { MediaEditorModal } from "@/components/media";
+
+<MediaEditorModal
+  media={selectedMedia}
+  open={showEditor}
+  onOpenChange={setShowEditor}
+  onSaved={(updated) => handleUpdate(updated)}
+/>
+```
+
 ### useMediaTree Hook
 
 Location: `web/hooks/use-media-tree.ts`
