@@ -10,6 +10,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
+	"github.com/stwalsh4118/hermes/internal/streaming"
 )
 
 const (
@@ -22,15 +23,22 @@ const (
 	defaultLogLevel                  = "info"
 	defaultLogPretty                 = false
 	defaultDatabaseEnableWAL         = true
+	defaultStreamingHardwareAccel    = streaming.HardwareAccelAuto
+	defaultStreamingSegmentDuration  = 6
+	defaultStreamingPlaylistSize     = 10
+	defaultStreamingSegmentPath      = "./data/streams"
+	defaultStreamingGracePeriod      = 30
+	defaultStreamingCleanupInterval  = 60
 	envPrefix                        = "HERMES"
 )
 
 // Config holds all application configuration
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Logging  LoggingConfig
-	Media    MediaConfig
+	Server    ServerConfig
+	Database  DatabaseConfig
+	Logging   LoggingConfig
+	Media     MediaConfig
+	Streaming StreamingConfig
 }
 
 // ServerConfig holds HTTP server configuration
@@ -58,6 +66,16 @@ type LoggingConfig struct {
 type MediaConfig struct {
 	LibraryPath      string
 	SupportedFormats []string
+}
+
+// StreamingConfig holds video streaming configuration
+type StreamingConfig struct {
+	HardwareAccel      streaming.HardwareAccel // none, nvenc, qsv, vaapi, videotoolbox, auto
+	SegmentDuration    int                     // HLS segment duration in seconds
+	PlaylistSize       int                     // Number of segments to keep in playlist
+	SegmentPath        string                  // Directory for storing stream segments
+	GracePeriodSeconds int                     // Time to keep stream alive after last client disconnects
+	CleanupInterval    int                     // How often to cleanup old segments in seconds
 }
 
 // Load reads configuration from .env file, config files, environment variables, and defaults
@@ -125,6 +143,14 @@ func setDefaults(v *viper.Viper) {
 
 	// Media defaults
 	v.SetDefault("media.supportedformats", []string{"mp4", "mkv", "avi", "mov"})
+
+	// Streaming defaults
+	v.SetDefault("streaming.hardwareaccel", defaultStreamingHardwareAccel)
+	v.SetDefault("streaming.segmentduration", defaultStreamingSegmentDuration)
+	v.SetDefault("streaming.playlistsize", defaultStreamingPlaylistSize)
+	v.SetDefault("streaming.segmentpath", defaultStreamingSegmentPath)
+	v.SetDefault("streaming.graceperiodseconds", defaultStreamingGracePeriod)
+	v.SetDefault("streaming.cleanupinterval", defaultStreamingCleanupInterval)
 }
 
 // Validate checks that configuration values are valid
@@ -149,6 +175,32 @@ func (c *Config) Validate() error {
 	validLevels := []string{"debug", "info", "warn", "error"}
 	if !contains(validLevels, c.Logging.Level) {
 		return fmt.Errorf("invalid log level: %s (must be one of: %s)", c.Logging.Level, strings.Join(validLevels, ", "))
+	}
+
+	// Validate streaming configuration
+	if !c.Streaming.HardwareAccel.IsValid() {
+		validOptions := []string{"none", "nvenc", "qsv", "vaapi", "videotoolbox", "auto"}
+		return fmt.Errorf("invalid hardware acceleration: %s (must be one of: %s)", c.Streaming.HardwareAccel, strings.Join(validOptions, ", "))
+	}
+
+	if c.Streaming.SegmentDuration <= 0 {
+		return fmt.Errorf("invalid segment duration: %d (must be > 0)", c.Streaming.SegmentDuration)
+	}
+
+	if c.Streaming.PlaylistSize <= 0 {
+		return fmt.Errorf("invalid playlist size: %d (must be > 0)", c.Streaming.PlaylistSize)
+	}
+
+	if c.Streaming.GracePeriodSeconds < 0 {
+		return fmt.Errorf("invalid grace period: %d (must be >= 0)", c.Streaming.GracePeriodSeconds)
+	}
+
+	if c.Streaming.CleanupInterval <= 0 {
+		return fmt.Errorf("invalid cleanup interval: %d (must be > 0)", c.Streaming.CleanupInterval)
+	}
+
+	if c.Streaming.SegmentPath == "" {
+		return fmt.Errorf("segment path cannot be empty")
 	}
 
 	// Database path validation will be done when opening DB

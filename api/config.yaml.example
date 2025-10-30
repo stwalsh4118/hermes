@@ -101,6 +101,60 @@ media:
     - mov
 
 # ============================================================================
+# Streaming Configuration
+# ============================================================================
+streaming:
+  # Hardware acceleration method for video encoding
+  # Options: none, nvenc, qsv, vaapi, videotoolbox, auto
+  # - none: Software encoding (always available, CPU-intensive)
+  # - nvenc: NVIDIA GPU encoding (requires NVIDIA GPU + drivers)
+  # - qsv: Intel Quick Sync Video (requires Intel CPU with iGPU)
+  # - vaapi: Video Acceleration API (AMD/Intel on Linux)
+  # - videotoolbox: Apple hardware encoding (macOS only)
+  # - auto: Automatically detect and use best available
+  # Environment variable: HERMES_STREAMING_HARDWAREACCEL
+  # Default: "auto"
+  hardwareaccel: "auto"
+  
+  # HLS segment duration in seconds
+  # Shorter segments = lower latency but more overhead
+  # Longer segments = higher latency but better efficiency
+  # Recommended: 6 seconds (balance between latency and efficiency)
+  # Environment variable: HERMES_STREAMING_SEGMENTDURATION
+  # Default: 6
+  segmentduration: 6
+  
+  # Number of segments to keep in HLS playlist
+  # This affects the total buffer duration available to clients
+  # Total buffer = segmentduration * playlistsize
+  # With defaults: 6 seconds * 10 segments = 60 seconds buffer
+  # Environment variable: HERMES_STREAMING_PLAYLISTSIZE
+  # Default: 10
+  playlistsize: 10
+  
+  # Directory for storing HLS stream segments
+  # Segments are automatically cleaned up after use
+  # Ensure sufficient disk space (minimum 5GB recommended)
+  # Environment variable: HERMES_STREAMING_SEGMENTPATH
+  # Default: "./data/streams"
+  segmentpath: "./data/streams"
+  
+  # Grace period in seconds to keep stream alive after last client disconnects
+  # This allows quick reconnections without restarting the transcode process
+  # Setting to 0 stops streams immediately when last client disconnects
+  # Environment variable: HERMES_STREAMING_GRACEPERIODSECONDS
+  # Default: 30
+  graceperiodseconds: 30
+  
+  # How often to cleanup old segments in seconds
+  # Background task that removes orphaned segment files
+  # Lower values = more frequent cleanup but more overhead
+  # Higher values = less overhead but segments linger longer
+  # Environment variable: HERMES_STREAMING_CLEANUPINTERVAL
+  # Default: 60
+  cleanupinterval: 60
+
+# ============================================================================
 # Example Configurations
 # ============================================================================
 
