@@ -360,17 +360,77 @@ func (s *PlaylistService) GetPlaylist(ctx context.Context, channelID uuid.UUID) 
 	return items, nil
 }
 
-// CalculateDuration calculates the total duration of all media in a channel's playlist
-func (s *PlaylistService) CalculateDuration(ctx context.Context, channelID uuid.UUID) (int64, error) {
-	// Get playlist with media details
-	items, err := s.GetPlaylist(ctx, channelID)
-	if err != nil {
-		return 0, err
+// BulkRemoveFromPlaylist removes multiple playlist items in a single transaction
+func (s *PlaylistService) BulkRemoveFromPlaylist(ctx context.Context, channelID uuid.UUID, itemIDs []uuid.UUID) error {
+	if len(itemIDs) == 0 {
+		return nil
 	}
 
+	// Validate all items exist and belong to this channel
+	for _, itemID := range itemIDs {
+		item, err := s.repos.PlaylistItems.GetByID(ctx, itemID)
+		if err != nil {
+			if db.IsNotFound(err) {
+				return fmt.Errorf("failed to bulk remove: %w", ErrPlaylistItemNotFound)
+			}
+			return fmt.Errorf("failed to bulk remove: %w", err)
+		}
+
+		if item.ChannelID != channelID {
+			return fmt.Errorf("failed to bulk remove: item %s does not belong to channel %s", itemID, channelID)
+		}
+	}
+
+	// Delete all items and renumber positions in single transaction
+	err := s.db.WithTransaction(ctx, func(tx *gorm.DB) error {
+		// Batch delete all items in one query
+		result := tx.Where("id IN ?", itemIDs).Delete(&models.PlaylistItem{})
+		if result.Error != nil {
+			return fmt.Errorf("failed to delete items: %w", result.Error)
+		}
+
+		// Renumber remaining positions sequentially in a single SQL statement
+		// Uses ROW_NUMBER() window function to assign new sequential positions
+		result = tx.Exec(`
+			UPDATE playlist_items 
+			SET position = numbered.new_pos 
+			FROM (
+				SELECT id, ROW_NUMBER() OVER (ORDER BY position) - 1 AS new_pos
+				FROM playlist_items 
+				WHERE channel_id = ?
+			) AS numbered
+			WHERE playlist_items.id = numbered.id
+		`, channelID.String())
+
+		if result.Error != nil {
+			return fmt.Errorf("failed to renumber positions: %w", result.Error)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelID.String()).
+			Int("item_count", len(itemIDs)).
+			Msg("Failed to bulk remove from playlist")
+		return fmt.Errorf("failed to bulk remove from playlist: %w", err)
+	}
+
+	logger.Log.Info().
+		Str("channel_id", channelID.String()).
+		Int("item_count", len(itemIDs)).
+		Msg("Items bulk removed from playlist successfully")
+
+	return nil
+}
+
+// CalculateDuration calculates the total duration from a list of playlist items
+func (s *PlaylistService) CalculateDuration(items []*models.PlaylistItem) int64 {
 	// Handle empty playlist
 	if len(items) == 0 {
-		return 0, nil
+		return 0
 	}
 
 	// Sum all media durations
@@ -381,11 +441,5 @@ func (s *PlaylistService) CalculateDuration(ctx context.Context, channelID uuid.
 		}
 	}
 
-	logger.Log.Debug().
-		Str("channel_id", channelID.String()).
-		Int64("total_duration", totalDuration).
-		Int("item_count", len(items)).
-		Msg("Calculated playlist duration")
-
-	return totalDuration, nil
+	return totalDuration
 }

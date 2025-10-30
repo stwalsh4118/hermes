@@ -62,6 +62,11 @@ type BulkAddToPlaylistRequest struct {
 	Items []AddToPlaylistRequest `json:"items" binding:"required,min=1"`
 }
 
+// BulkRemoveFromPlaylistRequest represents a request to remove multiple items
+type BulkRemoveFromPlaylistRequest struct {
+	ItemIDs []string `json:"item_ids" binding:"required,min=1"`
+}
+
 // ReorderPlaylistRequest represents a request to reorder playlist items
 type ReorderPlaylistRequest struct {
 	Items []ReorderItem `json:"items" binding:"required,min=1"`
@@ -508,16 +513,8 @@ func (h *ChannelHandler) GetPlaylist(c *gin.Context) {
 		return
 	}
 
-	// Calculate total duration
-	duration, err := h.playlistService.CalculateDuration(ctx, channelID)
-	if err != nil {
-		logger.Log.Error().
-			Err(err).
-			Str("channel_id", channelID.String()).
-			Msg("Failed to calculate playlist duration")
-		// Continue with 0 duration instead of failing
-		duration = 0
-	}
+	// Calculate total duration from the items we already fetched
+	duration := h.playlistService.CalculateDuration(items)
 
 	// Convert to response format
 	responses := make([]*PlaylistItemResponse, len(items))
@@ -780,6 +777,89 @@ func (h *ChannelHandler) RemoveFromPlaylist(c *gin.Context) {
 	})
 }
 
+// BulkRemoveFromPlaylist handles DELETE /api/channels/:id/playlist/bulk
+func (h *ChannelHandler) BulkRemoveFromPlaylist(c *gin.Context) {
+	idStr := c.Param("id")
+
+	// Validate channel UUID
+	channelID, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "invalid_id",
+			Message: "Invalid channel ID format",
+		})
+		return
+	}
+
+	var req BulkRemoveFromPlaylistRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Invalid request body: " + err.Error(),
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	// Convert string IDs to UUIDs
+	itemIDs := make([]uuid.UUID, 0, len(req.ItemIDs))
+	for _, idStr := range req.ItemIDs {
+		itemID, err := uuid.Parse(idStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error:   "invalid_item_id",
+				Message: fmt.Sprintf("Invalid item ID format: %s", idStr),
+			})
+			return
+		}
+		itemIDs = append(itemIDs, itemID)
+	}
+
+	// Call service to bulk remove
+	err = h.playlistService.BulkRemoveFromPlaylist(ctx, channelID, itemIDs)
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelID.String()).
+			Int("item_count", len(itemIDs)).
+			Msg("Failed to bulk remove from playlist")
+
+		if errors.Is(err, channel.ErrChannelNotFound) {
+			c.JSON(http.StatusNotFound, ErrorResponse{
+				Error:   "channel_not_found",
+				Message: "Channel not found",
+			})
+			return
+		}
+
+		if errors.Is(err, channel.ErrPlaylistItemNotFound) {
+			c.JSON(http.StatusNotFound, ErrorResponse{
+				Error:   "item_not_found",
+				Message: "One or more playlist items not found",
+			})
+			return
+		}
+
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   "bulk_remove_failed",
+			Message: "Failed to remove items from playlist",
+		})
+		return
+	}
+
+	logger.Log.Info().
+		Str("channel_id", channelID.String()).
+		Int("item_count", len(itemIDs)).
+		Msg("Bulk remove from playlist completed successfully")
+
+	c.JSON(http.StatusOK, gin.H{
+		"removed": len(itemIDs),
+		"message": "Items removed successfully",
+	})
+}
+
 // ReorderPlaylist handles PUT /api/channels/:id/playlist/reorder
 func (h *ChannelHandler) ReorderPlaylist(c *gin.Context) {
 	idStr := c.Param("id")
@@ -883,6 +963,7 @@ func SetupChannelRoutes(apiGroup *gin.RouterGroup, channelService *channel.Chann
 	apiGroup.GET("/channels/:id/playlist", handler.GetPlaylist)
 	apiGroup.POST("/channels/:id/playlist/bulk", handler.BulkAddToPlaylist)
 	apiGroup.POST("/channels/:id/playlist", handler.AddToPlaylist)
+	apiGroup.DELETE("/channels/:id/playlist/bulk", handler.BulkRemoveFromPlaylist)
 	apiGroup.DELETE("/channels/:id/playlist/:item_id", handler.RemoveFromPlaylist)
 	apiGroup.PUT("/channels/:id/playlist/reorder", handler.ReorderPlaylist)
 }
