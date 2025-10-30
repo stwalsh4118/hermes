@@ -2,11 +2,11 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { RefreshCw } from "lucide-react"
 import { RetroHeaderLayout } from "@/components/layout/retro-header-layout"
-import { useMedia, useScanMedia } from "@/hooks/use-media"
+import { useMedia } from "@/hooks/use-media"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Media } from "@/lib/types/api"
+import { LibraryScanner } from "@/components/media"
 
 const getMediaType = (item: Media): "episode" | "media" => {
   return item.season != null || item.episode != null ? "episode" : "media"
@@ -17,8 +17,7 @@ export default function LibraryPage() {
   const [typeFilter, setTypeFilter] = useState("all")
   const [sortOrder, setSortOrder] = useState("newest")
 
-  const { data: mediaResponse, isLoading, isError } = useMedia()
-  const scanMediaMutation = useScanMedia()
+  const { data: mediaResponse, isLoading, isError, refetch } = useMedia()
 
   const mediaItems = mediaResponse?.items || []
 
@@ -70,9 +69,6 @@ export default function LibraryPage() {
     return `${minutes}:${secs.toString().padStart(2, "0")}`
   }
 
-  const handleScanLibrary = () => {
-    scanMediaMutation.mutate("/media")
-  }
 
   return (
     <RetroHeaderLayout>
@@ -82,14 +78,7 @@ export default function LibraryPage() {
           <h2 className="font-mono text-4xl font-bold uppercase tracking-wider vcr-text">Media Library</h2>
           <p className="mt-2 text-muted-foreground">Manage your video collection</p>
         </div>
-        <button
-          onClick={handleScanLibrary}
-          disabled={scanMediaMutation.isPending}
-          className="retro-button bg-primary text-primary-foreground hover:bg-primary/80 px-6 py-3 rounded-lg font-bold border-2 border-primary-foreground/20 shadow-[6px_6px_0_rgba(0,0,0,0.2)] hover:shadow-[3px_3px_0_rgba(0,0,0,0.2)] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-        >
-          <RefreshCw className={`w-5 h-5 ${scanMediaMutation.isPending ? "animate-spin" : ""}`} />
-          {scanMediaMutation.isPending ? "SCANNING..." : "SCAN LIBRARY"}
-        </button>
+        <LibraryScanner onScanComplete={() => refetch()} defaultPath="/media" />
       </div>
 
       {/* Search and Filter */}
@@ -226,12 +215,9 @@ export default function LibraryPage() {
           ) : (
             <div className="bg-card rounded-xl p-12 border-4 border-primary/20 shadow-[8px_8px_0_rgba(0,0,0,0.2)] text-center">
               <p className="text-muted-foreground font-mono text-lg">No media items found</p>
-              <button
-                onClick={handleScanLibrary}
-                className="mt-4 retro-button bg-primary text-primary-foreground hover:bg-primary/80 px-6 py-3 rounded-lg font-bold border-2 border-primary-foreground/20 shadow-[6px_6px_0_rgba(0,0,0,0.2)] hover:shadow-[3px_3px_0_rgba(0,0,0,0.2)] transition-all"
-              >
-                SCAN LIBRARY
-              </button>
+              <div className="mt-4 flex justify-center">
+                <LibraryScanner onScanComplete={() => refetch()} defaultPath="/media" />
+              </div>
             </div>
           )}
         </>
