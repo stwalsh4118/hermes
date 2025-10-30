@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Media } from "@/lib/types/api";
 import {
   formatDurationDetailed,
@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
+import { MediaEditorModal } from "@/components/media/media-editor-modal";
 import { Separator } from "@/components/ui/separator";
 import {
   Copy,
@@ -52,7 +53,26 @@ export function MediaDetailModal({
   onDeleted,
 }: MediaDetailModalProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showEditor, setShowEditor] = useState(false);
+  const [currentMedia, setCurrentMedia] = useState<Media | null>(media);
   const deleteMutation = useDeleteMedia();
+
+  // Update currentMedia when media prop changes
+  useEffect(() => {
+    setCurrentMedia(media);
+  }, [media]);
+
+  // Handle opening the editor modal
+  const handleEdit = () => {
+    setShowEditor(true);
+  };
+
+  // Handle successful save from editor
+  const handleSaved = (updatedMedia: Media) => {
+    setCurrentMedia(updatedMedia);
+    // Notify parent of the edit
+    onEdit();
+  };
 
   // Handle delete confirmation
   const handleDelete = async () => {
@@ -72,15 +92,15 @@ export function MediaDetailModal({
 
   // Handle copy file path to clipboard
   const handleCopyPath = () => {
-    if (media?.file_path) {
-      navigator.clipboard.writeText(media.file_path);
+    if (currentMedia?.file_path) {
+      navigator.clipboard.writeText(currentMedia.file_path);
       toast.success("File path copied to clipboard");
     }
   };
 
-  if (!media) return null;
+  if (!currentMedia) return null;
 
-  const transcoding = determineTranscoding(media);
+  const transcoding = determineTranscoding(currentMedia);
   const isDeleting = deleteMutation.isPending;
 
   return (
@@ -112,8 +132,8 @@ export function MediaDetailModal({
                     <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
                       Title
                     </div>
-                    <div className="text-lg font-bold text-foreground break-words">
-                      {media.title}
+                    <div className="text-lg font-bold text-foreground wrap-break-word">
+                      {currentMedia.title}
                     </div>
                   </div>
 
@@ -123,7 +143,7 @@ export function MediaDetailModal({
                       Show Name
                     </div>
                     <div className="text-sm font-bold">
-                      {media.show_name || "—"}
+                      {currentMedia.show_name || "—"}
                     </div>
                   </div>
 
@@ -133,8 +153,8 @@ export function MediaDetailModal({
                       Season / Episode
                     </div>
                     <div className="text-sm font-bold">
-                      {media.season != null && media.episode != null
-                        ? `S${String(media.season).padStart(2, "0")}E${String(media.episode).padStart(2, "0")}`
+                      {currentMedia.season != null && currentMedia.episode != null
+                        ? `S${String(currentMedia.season).padStart(2, "0")}E${String(currentMedia.episode).padStart(2, "0")}`
                         : "—"}
                     </div>
                   </div>
@@ -145,7 +165,7 @@ export function MediaDetailModal({
                       Duration
                     </div>
                     <div className="text-sm font-bold text-primary">
-                      {formatDurationDetailed(media.duration)}
+                      {formatDurationDetailed(currentMedia.duration)}
                     </div>
                   </div>
 
@@ -155,7 +175,7 @@ export function MediaDetailModal({
                       Resolution
                     </div>
                     <div className="text-sm font-bold">
-                      {media.resolution || "—"}
+                      {currentMedia.resolution || "—"}
                     </div>
                   </div>
 
@@ -165,7 +185,7 @@ export function MediaDetailModal({
                       Video Codec
                     </div>
                     <div className="text-sm font-bold uppercase">
-                      {media.video_codec || "—"}
+                      {currentMedia.video_codec || "—"}
                     </div>
                   </div>
 
@@ -175,7 +195,7 @@ export function MediaDetailModal({
                       Audio Codec
                     </div>
                     <div className="text-sm font-bold uppercase">
-                      {media.audio_codec || "—"}
+                      {currentMedia.audio_codec || "—"}
                     </div>
                   </div>
 
@@ -185,7 +205,7 @@ export function MediaDetailModal({
                       Date Added
                     </div>
                     <div className="text-sm font-bold">
-                      {formatDate(media.created_at)}
+                      {formatDate(currentMedia.created_at)}
                     </div>
                   </div>
 
@@ -195,7 +215,7 @@ export function MediaDetailModal({
                       File Size
                     </div>
                     <div className="text-sm font-bold">
-                      {formatFileSize(media.file_size)}
+                      {formatFileSize(currentMedia.file_size)}
                     </div>
                   </div>
                 </div>
@@ -216,7 +236,7 @@ export function MediaDetailModal({
                     </div>
                     <div className="flex items-start gap-2">
                       <div className="flex-1 text-sm font-bold break-all bg-muted/30 px-3 py-2 rounded border border-border">
-                        {media.file_path}
+                        {currentMedia.file_path}
                       </div>
                       <Button
                         variant="outline"
@@ -308,7 +328,7 @@ export function MediaDetailModal({
             </Button>
             <Button
               variant="outline"
-              onClick={onEdit}
+              onClick={handleEdit}
               className="border-2 font-bold uppercase"
             >
               <Edit className="w-4 h-4 mr-2" />
@@ -336,10 +356,18 @@ export function MediaDetailModal({
         open={showDeleteConfirm}
         onOpenChange={setShowDeleteConfirm}
         title="Delete media?"
-        description={`Are you sure you want to delete "${media.title}"? This action cannot be undone and will remove the media from your library.`}
+        description={`Are you sure you want to delete "${currentMedia.title}"? This action cannot be undone and will remove the media from your library.`}
         confirmLabel="Delete"
         variant="destructive"
         onConfirm={handleDelete}
+      />
+
+      {/* Media Editor Modal */}
+      <MediaEditorModal
+        media={currentMedia}
+        open={showEditor}
+        onOpenChange={setShowEditor}
+        onSaved={handleSaved}
       />
     </>
   );
