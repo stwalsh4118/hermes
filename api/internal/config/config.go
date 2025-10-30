@@ -1,3 +1,5 @@
+// Package config provides configuration management using Viper.
+// It loads configuration from environment variables, .env files, and config files.
 package config
 
 import (

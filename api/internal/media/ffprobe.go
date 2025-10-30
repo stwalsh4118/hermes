@@ -1,3 +1,4 @@
+// Package media provides media file scanning, metadata extraction, and validation.
 package media
 
 import (

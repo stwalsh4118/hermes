@@ -1,3 +1,4 @@
+// Package models defines the core domain entities and data structures.
 package models
 
 import (

@@ -1,3 +1,4 @@
+// Package db provides database connection management and repository interfaces.
 package db
 
 import (

@@ -1,3 +1,5 @@
+// Package main is the entry point for the Hermes Virtual TV Channel Service.
+// It initializes configuration, logging, database, and starts the HTTP server.
 package main
 
 import (
@@ -20,7 +22,7 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		// Can't use logger yet, so use stderr
-		os.Stderr.WriteString("Failed to load configuration: " + err.Error() + "\n")
+		_, _ = os.Stderr.WriteString("Failed to load configuration: " + err.Error() + "\n")
 		os.Exit(1)
 	}
 
@@ -58,7 +60,11 @@ func main() {
 	if err != nil {
 		logger.Log.Fatal().Err(err).Msg("Failed to connect to database")
 	}
-	defer database.Close()
+	defer func() {
+		if err := database.Close(); err != nil {
+			logger.Log.Error().Err(err).Msg("Error closing database connection")
+		}
+	}()
 
 	logger.Log.Info().Str("path", cfg.Database.Path).Msg("Connected to database")
 
@@ -106,8 +112,10 @@ func main() {
 		if err := srv.Shutdown(ctx); err != nil {
 			logger.Log.Error().Err(err).Msg("Graceful shutdown failed")
 			cancel()
-			database.Close()
-			os.Exit(1) //nolint:gocritic // database.Close() called explicitly before exit
+			if closeErr := database.Close(); closeErr != nil {
+				logger.Log.Error().Err(closeErr).Msg("Error closing database during failed shutdown")
+			}
+			os.Exit(1) //nolint:gocritic // Intentional exit after cleanup
 		}
 		cancel()
 	}

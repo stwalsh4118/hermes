@@ -1,3 +1,4 @@
+// Package channel provides business logic for channel and playlist management operations.
 package channel
 
 import "errors"
