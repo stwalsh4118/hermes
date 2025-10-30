@@ -1,6 +1,6 @@
 # Frontend Infrastructure API
 
-Last Updated: 2025-10-28 (Media tree component and hooks added)
+Last Updated: 2025-10-30 (Library scanner component and hook added)
 
 ## Utilities
 
@@ -900,6 +900,49 @@ mediaKeys.scan(scanId)         // ["media", "scan", scanId]
 - Auto-polling for scan status (every 2s while running)
 - Type-safe request/response handling
 
+### Media Scan Hook
+
+Location: `web/hooks/use-media-scan.ts`
+
+**useMediaScan() - Orchestrate Scanning Workflow:**
+```typescript
+function useMediaScan(onComplete?: () => void): UseScanResult
+
+interface UseScanResult {
+  state: "idle" | "scanning" | "completed" | "failed" | "cancelled";
+  scanId: string | null;
+  progress: ScanProgress | null;
+  error: string | null;
+  startScan: (path: string) => Promise<void>;
+  cancelScan: () => void;
+  reset: () => void;
+  elapsedTime: number;
+}
+```
+
+**Usage:**
+```typescript
+import { useMediaScan } from "@/hooks/use-media-scan";
+
+const { state, progress, startScan, cancelScan, elapsedTime } = useMediaScan(() => {
+  console.log("Scan complete!");
+  refetch();
+});
+
+// Start scan
+await startScan("/media/videos");
+
+// Cancel scan (client-side only)
+cancelScan();
+```
+
+**Features:**
+- State machine management (idle → scanning → completed/failed/cancelled)
+- Automatic polling via `useScanStatus` (every 2s while running)
+- Elapsed time tracking
+- Error handling (409 Conflict, 400 Bad Request, network errors)
+- Completion callback support
+
 ## State Management (Zustand)
 
 ### Store Configuration
@@ -1405,6 +1448,38 @@ import { MediaTree } from "@/components/media";
   initialSelectedMediaIds={playlistMediaIds}
   showFilterToggle={true}
   enableReordering={false}
+/>
+```
+
+### LibraryScanner
+
+Component for triggering media library scans and monitoring real-time progress.
+
+**Props:**
+```typescript
+interface LibraryScannerProps {
+  onScanComplete?: () => void;
+  defaultPath?: string; // Default: "/media"
+}
+```
+
+**Features:**
+- Scan button with optional path input
+- Progress modal with real-time updates (progress bar, stats, current file)
+- Results modal with success summary and error list
+- Elapsed time tracking
+- Auto-refresh parent data on completion
+- Error handling (409 Conflict, 400 Bad Request, network errors)
+- Toast notifications
+- Responsive design with proper overflow handling
+
+**Usage:**
+```typescript
+import { LibraryScanner } from "@/components/media";
+
+<LibraryScanner 
+  onScanComplete={() => refetch()} 
+  defaultPath="/media/videos" 
 />
 ```
 
