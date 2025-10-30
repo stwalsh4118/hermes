@@ -132,7 +132,101 @@ if err != nil {
 
 ## Service Interfaces
 
-To be defined during implementation (Task 4-3).
+### TimelineService (Go)
+
+Location: `internal/timeline/service.go`
+
+```go
+type TimelineService struct {
+    repos *db.Repositories
+}
+
+func NewTimelineService(repos *db.Repositories) *TimelineService
+func (s *TimelineService) GetCurrentPosition(ctx context.Context, channelID uuid.UUID) (*TimelinePosition, error)
+```
+
+**Description:**
+Service layer that integrates the timeline calculator with database repositories. Fetches channel and playlist data, performs validation, and delegates calculation to the pure calculator function.
+
+**Methods:**
+
+#### GetCurrentPosition
+
+Calculates and returns the current timeline position for a channel.
+
+**Signature:**
+```go
+func (s *TimelineService) GetCurrentPosition(ctx context.Context, channelID uuid.UUID) (*TimelinePosition, error)
+```
+
+**Parameters:**
+- `ctx` - Context for cancellation and timeout
+- `channelID` - UUID of the channel to calculate position for
+
+**Returns:**
+- `*TimelinePosition` - Current playback position with all fields populated
+- `error` - One of:
+  - `channel.ErrChannelNotFound` - Channel doesn't exist
+  - `ErrChannelNotStarted` - Current time before channel start
+  - `ErrEmptyPlaylist` - Channel has no playlist items
+  - `ErrPlaylistFinished` - Non-looping channel past end
+  - Wrapped database errors
+
+**Process:**
+1. Fetches channel from database using `repos.Channels.GetByID`
+2. Fetches playlist with media details using `repos.PlaylistItems.GetWithMedia`
+3. Validates playlist is not empty
+4. Calls `CalculatePosition` with current UTC time
+5. Returns result or appropriate error
+
+**Error Handling:**
+- Database errors are wrapped with context
+- Calculator errors are passed through unchanged
+- "Not found" errors are converted to `channel.ErrChannelNotFound`
+
+**Logging:**
+- Debug: Calculation start with channel_id
+- Info: Success with media_id, offset, duration
+- Warn: Calculator errors or empty playlist
+- Error: Database failures with context
+
+**Example Usage:**
+```go
+import (
+    "context"
+    "github.com/stwalsh4118/hermes/internal/db"
+    "github.com/stwalsh4118/hermes/internal/timeline"
+)
+
+// Create service
+database, _ := db.New("./data/hermes.db")
+repos := db.NewRepositories(database)
+service := timeline.NewTimelineService(repos)
+
+// Get current position
+ctx := context.Background()
+position, err := service.GetCurrentPosition(ctx, channelID)
+if err != nil {
+    // Handle error cases
+    switch {
+    case errors.Is(err, channel.ErrChannelNotFound):
+        // Channel not found - return 404
+    case errors.Is(err, timeline.ErrChannelNotStarted):
+        // Channel hasn't started - return 409
+    case errors.Is(err, timeline.ErrEmptyPlaylist):
+        // No playlist items - return 409
+    case errors.Is(err, timeline.ErrPlaylistFinished):
+        // Playlist finished - return 409
+    default:
+        // Database error - return 500
+    }
+    return
+}
+
+// Use position data
+fmt.Printf("Now playing: %s at %d seconds\n", 
+    position.MediaTitle, position.OffsetSeconds)
+```
 
 ## REST Endpoints
 
