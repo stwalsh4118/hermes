@@ -12,7 +12,7 @@ import { MediaTree } from "@/components/media";
 import { ChannelPreview } from "./channel-preview";
 import { Channel, PlaylistItem, Media } from "@/lib/types/api";
 import { useMediaAll } from "@/hooks/use-media";
-import { useAddToPlaylist, useRemoveFromPlaylist, useReorderPlaylist, useBulkAddToPlaylist } from "@/hooks/use-playlist";
+import { useAddToPlaylist, useRemoveFromPlaylist, useReorderPlaylist, useBulkAddToPlaylist, useBulkRemoveFromPlaylist } from "@/hooks/use-playlist";
 import { toast } from "sonner";
 
 const channelFormSchema = z.object({
@@ -55,6 +55,7 @@ export const ChannelForm = memo(function ChannelForm({
   const removeFromPlaylist = useRemoveFromPlaylist();
   const reorderPlaylist = useReorderPlaylist();
   const bulkAddToPlaylist = useBulkAddToPlaylist();
+  const bulkRemoveFromPlaylist = useBulkRemoveFromPlaylist();
 
   const {
     register,
@@ -169,10 +170,11 @@ export const ChannelForm = memo(function ChannelForm({
         bulkAddToPlaylist.mutate({ channelId: channel.id, items });
       }
       
-      // Remove unselected items
-      removedItems.forEach(item => {
-        removeFromPlaylist.mutate({ channelId: channel.id, itemId: item.id });
-      });
+      // Bulk remove unselected items
+      if (removedItems.length > 0) {
+        const itemIds = removedItems.map(item => item.id);
+        bulkRemoveFromPlaylist.mutate({ channelId: channel.id, itemIds });
+      }
     } else {
       // In create mode, update local state
       const newPlaylist: PlaylistItem[] = selectedMedia.map((media, index) => ({

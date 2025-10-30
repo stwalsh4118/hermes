@@ -101,3 +101,29 @@ export function useBulkAddToPlaylist() {
   });
 }
 
+export function useBulkRemoveFromPlaylist() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ 
+      channelId, 
+      itemIds 
+    }: { 
+      channelId: string; 
+      itemIds: string[] 
+    }) => apiClient.bulkRemoveFromPlaylist(channelId, itemIds),
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ 
+        queryKey: playlistKeys.list(variables.channelId) 
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: channelKeys.detail(variables.channelId) 
+      });
+      toast.success(`Removed ${data.removed} items from playlist`);
+    },
+    onError: (error: ApiError) => {
+      toast.error(`Bulk remove failed: ${error.message}`);
+    },
+  });
+}
+

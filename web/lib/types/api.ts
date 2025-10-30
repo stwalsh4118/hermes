@@ -88,6 +88,10 @@ export interface ReorderPlaylistRequest {
   }[];
 }
 
+export interface BulkRemoveFromPlaylistRequest {
+  item_ids: string[];
+}
+
 // Response types
 
 export interface ApiError {
@@ -141,5 +145,10 @@ export interface PlaylistResponse {
 
 export interface ChannelsResponse {
   channels: Channel[];
+}
+
+export interface BulkRemoveResponse {
+  removed: number;
+  message: string;
 }
 

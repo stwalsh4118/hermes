@@ -136,6 +136,16 @@ class ApiClient {
     });
   }
 
+  async bulkRemoveFromPlaylist(channelId: string, itemIds: string[]) {
+    return this.request<{ removed: number; message: string }>(
+      `/api/channels/${channelId}/playlist/bulk`,
+      {
+        method: "DELETE",
+        body: JSON.stringify({ item_ids: itemIds }),
+      }
+    );
+  }
+
   async reorderPlaylist(channelId: string, data: ReorderPlaylistRequest) {
     return this.request<MessageResponse>(`/api/channels/${channelId}/playlist/reorder`, {
       method: "PUT",
