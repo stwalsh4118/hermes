@@ -398,7 +398,7 @@ func TestValidateFile_PermissionDenied(t *testing.T) {
 	}
 
 	// Clean up - restore permissions before cleanup
-	os.Chmod(tmpFile, 0644)
+	_ = os.Chmod(tmpFile, 0644)
 }
 
 // Helper function to check if a string contains a substring (case-insensitive)

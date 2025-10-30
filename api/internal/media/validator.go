@@ -71,11 +71,12 @@ func ValidateFile(filePath string) ValidationResult {
 	// Check if file exists and get info
 	info, err := os.Stat(filePath)
 	if err != nil {
-		if os.IsNotExist(err) {
+		switch {
+		case os.IsNotExist(err):
 			result.Reasons = append(result.Reasons, "file does not exist")
-		} else if os.IsPermission(err) {
+		case os.IsPermission(err):
 			result.Reasons = append(result.Reasons, "file is not readable (permission denied)")
-		} else {
+		default:
 			result.Reasons = append(result.Reasons, "file access error: "+err.Error())
 		}
 		return result
@@ -97,7 +98,7 @@ func ValidateFile(filePath string) ValidationResult {
 		}
 		return result
 	}
-	file.Close()
+	_ = file.Close()
 
 	// File exists and is readable
 	result.Readable = true

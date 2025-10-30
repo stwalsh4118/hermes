@@ -35,7 +35,7 @@ func setupTestScanner(t *testing.T) (*Scanner, *db.DB, func()) {
 	scanner := NewScanner(repos)
 
 	cleanup := func() {
-		database.Close()
+		_ = database.Close()
 	}
 
 	return scanner, database, cleanup
@@ -56,7 +56,7 @@ func createTestVideoFiles(t *testing.T, dir string, files []string) {
 		// Create empty file
 		f, err := os.Create(fullPath)
 		require.NoError(t, err)
-		f.Close()
+		_ = f.Close()
 	}
 }
 
@@ -115,7 +115,7 @@ func TestStartScan_InvalidDirectory(t *testing.T) {
 	tmpFile := filepath.Join(t.TempDir(), "testfile.txt")
 	f, err := os.Create(tmpFile)
 	require.NoError(t, err)
-	f.Close()
+	_ = f.Close()
 
 	_, err = scanner.StartScan(ctx, tmpFile)
 	assert.Error(t, err)

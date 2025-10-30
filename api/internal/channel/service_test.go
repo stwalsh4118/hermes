@@ -32,7 +32,7 @@ func setupTestService(t *testing.T) (*ChannelService, *db.DB, func()) {
 	service := NewChannelService(repos)
 
 	cleanup := func() {
-		database.Close()
+		_ = database.Close()
 	}
 
 	return service, database, cleanup

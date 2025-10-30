@@ -41,8 +41,8 @@ func setupPlaylistTest(t *testing.T) (*PlaylistService, *db.Repositories, func()
 	service := NewPlaylistService(database, repos)
 
 	cleanup := func() {
-		database.Close()
-		os.RemoveAll(tmpDir)
+		_ = database.Close()
+		_ = os.RemoveAll(tmpDir)
 	}
 
 	return service, repos, cleanup
@@ -505,7 +505,7 @@ func TestAddToPlaylist_DatabaseError(t *testing.T) {
 	// Close the database connection to force failure
 	sqlDB, err := service.db.GetSQLDB()
 	require.NoError(t, err)
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Try to add item - should fail with database error
 	_, err = service.AddToPlaylist(ctx, channel.ID, media.ID, 1)
@@ -530,7 +530,7 @@ func TestRemoveFromPlaylist_DatabaseError(t *testing.T) {
 	// Close the database connection to force failure
 	sqlDB, err := service.db.GetSQLDB()
 	require.NoError(t, err)
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Try to remove item - should fail with database error
 	err = service.RemoveFromPlaylist(ctx, item.ID)

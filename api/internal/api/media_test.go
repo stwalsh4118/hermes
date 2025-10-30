@@ -36,7 +36,7 @@ func setupTestDB(t *testing.T) (*db.DB, *db.Repositories, func()) {
 	repos := db.NewRepositories(database)
 
 	cleanup := func() {
-		database.Close()
+		_ = database.Close()
 	}
 
 	return database, repos, cleanup
@@ -489,8 +489,10 @@ func TestUpdateMedia(t *testing.T) {
 	// Create test media
 	mediaItem := createTestMedia(t, repos)
 
+	const updatedTitle = "Updated Title"
+
 	t.Run("Update media title", func(t *testing.T) {
-		newTitle := "Updated Title"
+		newTitle := updatedTitle
 		reqBody := UpdateMediaRequest{Title: &newTitle}
 		body, _ := json.Marshal(reqBody)
 
@@ -537,7 +539,7 @@ func TestUpdateMedia(t *testing.T) {
 
 	t.Run("Update non-existent media returns 404", func(t *testing.T) {
 		nonExistentID := uuid.New().String()
-		newTitle := "Updated Title"
+		newTitle := updatedTitle
 		reqBody := UpdateMediaRequest{Title: &newTitle}
 		body, _ := json.Marshal(reqBody)
 
@@ -556,7 +558,7 @@ func TestUpdateMedia(t *testing.T) {
 	})
 
 	t.Run("Invalid UUID returns 400", func(t *testing.T) {
-		newTitle := "Updated Title"
+		newTitle := updatedTitle
 		reqBody := UpdateMediaRequest{Title: &newTitle}
 		body, _ := json.Marshal(reqBody)
 
