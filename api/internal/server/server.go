@@ -15,6 +15,7 @@ import (
 	"github.com/stwalsh4118/hermes/internal/logger"
 	"github.com/stwalsh4118/hermes/internal/media"
 	"github.com/stwalsh4118/hermes/internal/middleware"
+	"github.com/stwalsh4118/hermes/internal/timeline"
 )
 
 // Server represents the HTTP server
@@ -25,6 +26,7 @@ type Server struct {
 	scanner         *media.Scanner
 	channelService  *channel.ChannelService
 	playlistService *channel.PlaylistService
+	timelineService *timeline.TimelineService
 	router          *gin.Engine
 	server          *http.Server
 }
@@ -35,6 +37,7 @@ func New(cfg *config.Config, database *db.DB) *Server {
 	scanner := media.NewScanner(repos)
 	channelService := channel.NewChannelService(repos)
 	playlistService := channel.NewPlaylistService(database, repos)
+	timelineService := timeline.NewTimelineService(repos)
 
 	return &Server{
 		config:          cfg,
@@ -43,6 +46,7 @@ func New(cfg *config.Config, database *db.DB) *Server {
 		scanner:         scanner,
 		channelService:  channelService,
 		playlistService: playlistService,
+		timelineService: timelineService,
 	}
 }
 
@@ -69,7 +73,7 @@ func (s *Server) setupRouter() {
 	// Register service routes
 	api.SetupHealthRoutes(apiGroup, s.db)
 	api.SetupMediaRoutes(apiGroup, s.scanner, s.repos)
-	api.SetupChannelRoutes(apiGroup, s.channelService, s.playlistService)
+	api.SetupChannelRoutes(apiGroup, s.channelService, s.playlistService, s.timelineService)
 }
 
 // Start starts the HTTP server

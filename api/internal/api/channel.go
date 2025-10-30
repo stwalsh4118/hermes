@@ -14,6 +14,7 @@ import (
 	"github.com/stwalsh4118/hermes/internal/db"
 	"github.com/stwalsh4118/hermes/internal/logger"
 	"github.com/stwalsh4118/hermes/internal/models"
+	"github.com/stwalsh4118/hermes/internal/timeline"
 )
 
 // Request/Response DTOs
@@ -99,13 +100,15 @@ type PlaylistResponse struct {
 type ChannelHandler struct {
 	channelService  *channel.ChannelService
 	playlistService *channel.PlaylistService
+	timelineService *timeline.TimelineService
 }
 
 // NewChannelHandler creates a new channel handler instance
-func NewChannelHandler(channelService *channel.ChannelService, playlistService *channel.PlaylistService) *ChannelHandler {
+func NewChannelHandler(channelService *channel.ChannelService, playlistService *channel.PlaylistService, timelineService *timeline.TimelineService) *ChannelHandler {
 	return &ChannelHandler{
 		channelService:  channelService,
 		playlistService: playlistService,
+		timelineService: timelineService,
 	}
 }
 
@@ -412,7 +415,7 @@ func (h *ChannelHandler) DeleteChannel(c *gin.Context) {
 	})
 }
 
-// GetCurrentProgram handles GET /api/channels/:id/current (Placeholder)
+// GetCurrentProgram handles GET /api/channels/:id/current
 func (h *ChannelHandler) GetCurrentProgram(c *gin.Context) {
 	idStr := c.Param("id")
 
@@ -429,9 +432,14 @@ func (h *ChannelHandler) GetCurrentProgram(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	// Verify channel exists
-	_, err = h.channelService.GetByID(ctx, id)
+	logger.Log.Debug().
+		Str("channel_id", id.String()).
+		Msg("Getting current timeline position")
+
+	// Get current position from timeline service
+	position, err := h.timelineService.GetCurrentPosition(ctx, id)
 	if err != nil {
+		// Map errors to appropriate HTTP status codes
 		if errors.Is(err, channel.ErrChannelNotFound) {
 			c.JSON(http.StatusNotFound, ErrorResponse{
 				Error:   "not_found",
@@ -440,23 +448,63 @@ func (h *ChannelHandler) GetCurrentProgram(c *gin.Context) {
 			return
 		}
 
+		if errors.Is(err, timeline.ErrChannelNotStarted) {
+			logger.Log.Warn().
+				Str("channel_id", id.String()).
+				Msg("Channel broadcast has not started yet")
+
+			c.JSON(http.StatusConflict, ErrorResponse{
+				Error:   "channel_not_started",
+				Message: "Channel broadcast has not started yet",
+			})
+			return
+		}
+
+		if errors.Is(err, timeline.ErrEmptyPlaylist) {
+			logger.Log.Warn().
+				Str("channel_id", id.String()).
+				Msg("Channel has no playlist items")
+
+			c.JSON(http.StatusConflict, ErrorResponse{
+				Error:   "empty_playlist",
+				Message: "Channel has no playlist items",
+			})
+			return
+		}
+
+		if errors.Is(err, timeline.ErrPlaylistFinished) {
+			logger.Log.Warn().
+				Str("channel_id", id.String()).
+				Msg("Playlist has finished (non-looping channel)")
+
+			c.JSON(http.StatusConflict, ErrorResponse{
+				Error:   "playlist_finished",
+				Message: "Playlist has finished (non-looping channel)",
+			})
+			return
+		}
+
+		// Unknown error - log and return 500
 		logger.Log.Error().
 			Err(err).
 			Str("channel_id", id.String()).
-			Msg("Failed to get channel for current program")
+			Msg("Failed to calculate timeline position")
 
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error:   "query_failed",
-			Message: "Failed to retrieve channel",
+			Error:   "calculation_failed",
+			Message: "Failed to calculate current position",
 		})
 		return
 	}
 
-	// Return placeholder response - full implementation in PBI 4
-	c.JSON(http.StatusNotImplemented, ErrorResponse{
-		Error:   "not_implemented",
-		Message: "Current program feature will be implemented in PBI 4",
-	})
+	logger.Log.Info().
+		Str("channel_id", id.String()).
+		Str("media_id", position.MediaID.String()).
+		Int64("offset_seconds", position.OffsetSeconds).
+		Str("media_title", position.MediaTitle).
+		Msg("Timeline position calculated successfully")
+
+	c.JSON(http.StatusOK, position)
 }
 
 // GetPlaylist handles GET /api/channels/:id/playlist
@@ -947,8 +995,8 @@ func (h *ChannelHandler) ReorderPlaylist(c *gin.Context) {
 }
 
 // SetupChannelRoutes registers channel-related routes
-func SetupChannelRoutes(apiGroup *gin.RouterGroup, channelService *channel.ChannelService, playlistService *channel.PlaylistService) {
-	handler := NewChannelHandler(channelService, playlistService)
+func SetupChannelRoutes(apiGroup *gin.RouterGroup, channelService *channel.ChannelService, playlistService *channel.PlaylistService, timelineService *timeline.TimelineService) {
+	handler := NewChannelHandler(channelService, playlistService, timelineService)
 
 	// Channel CRUD endpoints
 	apiGroup.POST("/channels", handler.CreateChannel)
