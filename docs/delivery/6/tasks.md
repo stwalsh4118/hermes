@@ -6,10 +6,15 @@ This document lists all tasks associated with PBI 6.
 
 ## Task Summary
 
-Tasks will be defined when this PBI moves from "Proposed" to "Agreed" status.
-
 | Task ID | Name | Status | Description |
 | :------ | :--- | :----- | :---------- |
-| -       | -    | -      | No tasks defined yet |
-
-
+| 6-1 | [Hardware Acceleration Detection & Configuration](./6-1.md) | Proposed | Detect available hardware encoders and extend configuration |
+| 6-2 | [FFmpeg Command Builder](./6-2.md) | Proposed | Build FFmpeg commands for HLS generation with quality variants |
+| 6-3 | [Stream Session Types & Models](./6-3.md) | Proposed | Define data structures for stream management and session tracking |
+| 6-4 | [HLS Playlist Generator](./6-4.md) | Proposed | Generate master and media playlists with real-time updates |
+| 6-5 | [Stream Manager Service](./6-5.md) | Proposed | Orchestrate stream lifecycle and manage FFmpeg processes |
+| 6-6 | [Timeline Position to FFmpeg Input](./6-6.md) | Proposed | Calculate start position and build FFmpeg input from playlist |
+| 6-7 | [Stream REST Endpoints](./6-7.md) | Proposed | Implement HLS streaming endpoints with client tracking |
+| 6-8 | [Error Handling & Recovery](./6-8.md) | Proposed | Implement crash detection, restart logic, and fallback mechanisms |
+| 6-9 | [Integration Tests](./6-9.md) | Proposed | Test streaming with real video files and multi-client scenarios |
+| 6-10 | [E2E CoS Testing](./6-10.md) | Proposed | Comprehensive acceptance criteria validation and performance testing |
