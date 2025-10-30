@@ -6,6 +6,11 @@ import { RefreshCw } from "lucide-react"
 import { RetroHeaderLayout } from "@/components/layout/retro-header-layout"
 import { useMedia, useScanMedia } from "@/hooks/use-media"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Media } from "@/lib/types/api"
+
+const getMediaType = (item: Media): "episode" | "media" => {
+  return item.season != null || item.episode != null ? "episode" : "media"
+}
 
 export default function LibraryPage() {
   const [searchQuery, setSearchQuery] = useState("")
@@ -22,7 +27,7 @@ export default function LibraryPage() {
     .filter((item) => {
       const matchesSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase())
       // For now, consider items with season/episode as episodes, others as media
-      const itemType = item.season !== null || item.episode !== null ? "episode" : "media"
+      const itemType = item.season != null || item.episode != null ? "episode" : "media"
       const matchesType = typeFilter === "all" || itemType === typeFilter
       return matchesSearch && matchesType
     })
@@ -42,8 +47,8 @@ export default function LibraryPage() {
   // Calculate stats
   const totalItems = mediaItems.length
   const totalSize = mediaItems.reduce((sum, item) => sum + (item.file_size || 0), 0)
-  const episodes = mediaItems.filter((item) => item.season !== null || item.episode !== null).length
-  const movies = mediaItems.filter((item) => item.season === null && item.episode === null).length
+  const episodes = mediaItems.filter((item) => item.season != null || item.episode != null).length
+  const movies = mediaItems.filter((item) => item.season == null && item.episode == null).length
 
   // Format bytes to human readable
   const formatBytes = (bytes: number) => {
@@ -198,7 +203,7 @@ export default function LibraryPage() {
                       {item.title}
                     </h3>
                     <div className="mb-4 flex items-center gap-4 text-sm text-muted-foreground">
-                      <span>{item.season !== null || item.episode !== null ? "Episode" : "Media"}</span>
+                      <span>{getMediaType(item) === "episode" ? "Episode" : "Media"}</span>
                       <span>•</span>
                       <span>{formatBytes(item.file_size || 0)}</span>
                       <span>•</span>

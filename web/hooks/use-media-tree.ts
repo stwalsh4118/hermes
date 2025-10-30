@@ -108,19 +108,19 @@ export function useMediaTree({
         
         // Sort episodes by episode number, then by title
         const sortedEpisodes = [...episodes].sort((a, b) => {
-          if (a.episode !== null && b.episode !== null) {
+          if (a.episode != null && b.episode != null) {
             return a.episode - b.episode;
           }
-          if (a.episode !== null) return -1;
-          if (b.episode !== null) return 1;
+          if (a.episode != null) return -1;
+          if (b.episode != null) return 1;
           return a.title.localeCompare(b.title);
         });
         
-        const seasonId = seasonNum !== null 
+        const seasonId = seasonNum != null 
           ? `season:${showName}:${seasonNum}`
           : `season:${showName}:unspecified`;
         
-        const seasonLabel = seasonNum !== null 
+        const seasonLabel = seasonNum != null 
           ? `Season ${seasonNum}`
           : "No Season";
         

@@ -141,7 +141,7 @@ export function formatDuration(seconds: number): string {
 export function formatEpisodeLabel(media: Media): string {
   const parts: string[] = [];
   
-  if (media.season !== null && media.episode !== null) {
+  if (media.season != null && media.episode != null) {
     const seasonStr = media.season.toString().padStart(2, "0");
     const episodeStr = media.episode.toString().padStart(2, "0");
     parts.push(`S${seasonStr}E${episodeStr}`);
