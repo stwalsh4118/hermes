@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"gorm.io/driver/sqlite"
@@ -25,6 +27,12 @@ type DB struct {
 // dbPath should be the path to the SQLite database file
 // Example: "./data/hermes.db"
 func New(dbPath string) (*DB, error) {
+	// Ensure the parent directory exists
+	dir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create database directory: %w", err)
+	}
+
 	// Configure SQLite with foreign keys and WAL mode
 	dsn := fmt.Sprintf("%s?_foreign_keys=on&_journal_mode=WAL", dbPath)
 
