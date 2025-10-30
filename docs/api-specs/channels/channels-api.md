@@ -198,14 +198,41 @@ Delete channel and all associated playlist items (cascade)
 - `500 Internal Server Error` - Delete failed
 
 ### GET /api/channels/:id/current
-Get currently playing program (placeholder for PBI 4)
+Get the current timeline position for a channel (what's playing now)
 
-**Response (501 Not Implemented):**
+**Success Response (200 OK):**
 ```json
 {
-  "error": "not_implemented",
-  "message": "Current program feature will be implemented in PBI 4"
+  "media_id": "550e8400-e29b-41d4-a716-446655440000",
+  "media_title": "Episode Title",
+  "offset_seconds": 1234,
+  "started_at": "2025-10-30T12:00:00Z",
+  "ends_at": "2025-10-30T12:45:00Z",
+  "duration": 2700
 }
+```
+
+**Fields:**
+- `media_id` - UUID of the currently playing media item
+- `media_title` - Title of the media for display
+- `offset_seconds` - Current position within the media (seconds elapsed)
+- `started_at` - When the current item started playing (UTC)
+- `ends_at` - When the current item will finish (UTC)
+- `duration` - Total duration of the current media item (seconds)
+
+**Error Responses:**
+
+- `400 Bad Request` - Invalid channel UUID format
+- `404 Not Found` - Channel not found
+- `409 Conflict` - Channel not started, empty playlist, or playlist finished
+  - `channel_not_started` - Current time is before channel start time
+  - `empty_playlist` - Channel has no playlist items
+  - `playlist_finished` - Non-looping channel has completed its playlist
+- `500 Internal Server Error` - Calculation failed
+
+**Example:**
+```bash
+curl http://localhost:8080/api/channels/550e8400-e29b-41d4-a716-446655440000/current
 ```
 
 ## Playlist Endpoints

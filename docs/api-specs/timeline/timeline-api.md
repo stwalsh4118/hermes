@@ -237,7 +237,7 @@ Get the current timeline position for a channel.
 **Success Response (200 OK):**
 ```json
 {
-  "media_id": "uuid-here",
+  "media_id": "550e8400-e29b-41d4-a716-446655440000",
   "media_title": "Episode Title",
   "offset_seconds": 1234,
   "started_at": "2025-10-30T12:00:00Z",
@@ -247,10 +247,50 @@ Get the current timeline position for a channel.
 ```
 
 **Error Responses:**
-- `400 Bad Request` - Invalid channel UUID format
-- `404 Not Found` - Channel not found
-- `409 Conflict` - Channel not started, empty playlist, or playlist finished
-- `500 Internal Server Error` - Calculation failed
 
-To be fully implemented during PBI 4.
+- `400 Bad Request` - Invalid channel UUID format
+  ```json
+  {
+    "error": "invalid_id",
+    "message": "Invalid channel ID format"
+  }
+  ```
+
+- `404 Not Found` - Channel not found
+  ```json
+  {
+    "error": "not_found",
+    "message": "Channel not found"
+  }
+  ```
+
+- `409 Conflict` - Channel not started, empty playlist, or playlist finished
+  ```json
+  {
+    "error": "channel_not_started",
+    "message": "Channel broadcast has not started yet"
+  }
+  ```
+  ```json
+  {
+    "error": "empty_playlist",
+    "message": "Channel has no playlist items"
+  }
+  ```
+  ```json
+  {
+    "error": "playlist_finished",
+    "message": "Playlist has finished (non-looping channel)"
+  }
+  ```
+
+- `500 Internal Server Error` - Calculation failed
+  ```json
+  {
+    "error": "calculation_failed",
+    "message": "Failed to calculate current position"
+  }
+  ```
+
+**Implementation Status:** ✅ Implemented in PBI 4, Task 4-4
 
