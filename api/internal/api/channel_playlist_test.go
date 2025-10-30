@@ -17,6 +17,7 @@ import (
 	"github.com/stwalsh4118/hermes/internal/channel"
 	"github.com/stwalsh4118/hermes/internal/db"
 	"github.com/stwalsh4118/hermes/internal/models"
+	"github.com/stwalsh4118/hermes/internal/timeline"
 )
 
 // setupChannelTestRouter creates a test router with channel routes
@@ -27,7 +28,8 @@ func setupChannelTestRouter(database *db.DB, repos *db.Repositories) *gin.Engine
 
 	channelService := channel.NewChannelService(repos)
 	playlistService := channel.NewPlaylistService(database, repos)
-	SetupChannelRoutes(apiGroup, channelService, playlistService)
+	timelineService := timeline.NewTimelineService(repos)
+	SetupChannelRoutes(apiGroup, channelService, playlistService, timelineService)
 
 	return router
 }
