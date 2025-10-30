@@ -441,9 +441,12 @@ func TestCalculateDuration_Success(t *testing.T) {
 	_, err = service.AddToPlaylist(ctx, channel.ID, media3.ID, 2)
 	require.NoError(t, err)
 
-	// Calculate duration
-	totalDuration, err := service.CalculateDuration(ctx, channel.ID)
+	// Get playlist items
+	items, err := service.GetPlaylist(ctx, channel.ID)
 	require.NoError(t, err)
+
+	// Calculate duration
+	totalDuration := service.CalculateDuration(items)
 
 	// Verify total (30 + 60 + 45 = 135 minutes = 8100 seconds)
 	assert.Equal(t, int64(8100), totalDuration)
@@ -458,27 +461,30 @@ func TestCalculateDuration_EmptyPlaylist(t *testing.T) {
 	// Create test channel with no items
 	channel := createTestChannel(t, repos, "Test Channel")
 
-	// Calculate duration
-	totalDuration, err := service.CalculateDuration(ctx, channel.ID)
+	// Get empty playlist
+	items, err := service.GetPlaylist(ctx, channel.ID)
 	require.NoError(t, err)
+
+	// Calculate duration
+	totalDuration := service.CalculateDuration(items)
 
 	// Should return 0 for empty playlist
 	assert.Equal(t, int64(0), totalDuration)
 }
 
-func TestCalculateDuration_ChannelNotFound(t *testing.T) {
+func TestGetPlaylist_ChannelNotFound_PreventsDurationCalculation(t *testing.T) {
 	service, _, cleanup := setupPlaylistTest(t)
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// Try to calculate duration for non-existent channel
+	// Try to get playlist for non-existent channel
 	fakeChannelID := uuid.New()
-	totalDuration, err := service.CalculateDuration(ctx, fakeChannelID)
+	items, err := service.GetPlaylist(ctx, fakeChannelID)
 
-	// Assert error
+	// Assert error from GetPlaylist
 	assert.Error(t, err)
-	assert.Equal(t, int64(0), totalDuration)
+	assert.Nil(t, items)
 	assert.True(t, IsChannelNotFound(err))
 }
 
