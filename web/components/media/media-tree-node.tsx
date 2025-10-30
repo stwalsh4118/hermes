@@ -3,6 +3,7 @@
 import { ChevronRight, ChevronDown, Folder, Film, GripVertical } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
+import { Media } from "@/lib/types/api";
 import {
   MediaTreeNode,
   isEpisodeNode,
@@ -18,6 +19,7 @@ interface MediaTreeNodeProps {
   searchQuery?: string;
   isActive?: boolean;
   enableReordering?: boolean;
+  onEpisodeClick?: (media: Media) => void;
 }
 
 /**
@@ -31,6 +33,7 @@ export function MediaTreeNodeComponent({
   searchQuery = "",
   isActive = false,
   enableReordering = false,
+  onEpisodeClick,
 }: MediaTreeNodeProps) {
   const hasChildNodes = hasChildren(node);
   const isEpisode = isEpisodeNode(node);
@@ -54,6 +57,13 @@ export function MediaTreeNodeComponent({
       return;
     }
     
+    // If episode node and callback provided, call it
+    if (isEpisode && onEpisodeClick && node.media) {
+      onEpisodeClick(node.media);
+      return;
+    }
+    
+    // Otherwise toggle if has children
     if (hasChildNodes) {
       onToggle(node.id);
     }

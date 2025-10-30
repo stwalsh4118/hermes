@@ -47,6 +47,9 @@ interface MediaTreeProps {
   
   /** Initial selected media IDs (for pre-populating selection) */
   initialSelectedMediaIds?: string[];
+  
+  /** Callback when an episode is clicked (not just checkbox) */
+  onEpisodeClick?: (media: Media) => void;
 }
 
 /**
@@ -65,6 +68,7 @@ export function MediaTree({
   onReorder,
   showFilterToggle = false,
   initialSelectedMediaIds = [],
+  onEpisodeClick,
 }: MediaTreeProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   
@@ -383,6 +387,7 @@ export function MediaTree({
                   searchQuery={searchQuery}
                   isActive={isActive}
                   enableReordering={enableReordering}
+                  onEpisodeClick={onEpisodeClick}
                 />
               </div>
             );
