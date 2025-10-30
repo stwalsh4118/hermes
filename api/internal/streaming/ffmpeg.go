@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // Quality level constants
@@ -258,9 +259,7 @@ func getSegmentFilenamePattern(outputPath string) string {
 	base := filepath.Base(outputPath)
 
 	// Remove .m3u8 extension if present
-	if len(base) > 5 && base[len(base)-5:] == ".m3u8" {
-		base = base[:len(base)-5]
-	}
+	base = strings.TrimSuffix(base, ".m3u8")
 
 	// Create pattern: dir/base_segment_%03d.ts
 	return filepath.Join(dir, base+"_segment_%03d.ts")
