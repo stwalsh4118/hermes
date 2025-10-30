@@ -270,7 +270,21 @@ func TestListMedia(t *testing.T) {
 		var resp MediaListResponse
 		err := json.Unmarshal(w.Body.Bytes(), &resp)
 		require.NoError(t, err)
-		assert.Equal(t, 100, resp.Limit) // max limit enforced
+		assert.Equal(t, 500, resp.Limit) // limit accepted as-is since it's under 10000
+	})
+
+	t.Run("Limit over 10000 is capped at 10000", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/media?limit=15000", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var resp MediaListResponse
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, 10000, resp.Limit) // max limit enforced at 10000
 	})
 
 	t.Run("Total count reflects all items not just current page", func(t *testing.T) {
@@ -329,6 +343,80 @@ func TestListMedia(t *testing.T) {
 	})
 
 	_ = media1 // prevent unused variable error
+
+	t.Run("Fetch all media with limit=-1", func(t *testing.T) {
+		// Create 25 media items (more than default limit of 20)
+		for i := 0; i < 25; i++ {
+			m := models.NewMedia(fmt.Sprintf("/test/unlimited%d.mp4", i), fmt.Sprintf("Video %d", i), 1800)
+			err := repos.Media.Create(context.Background(), m)
+			require.NoError(t, err)
+		}
+
+		req := httptest.NewRequest("GET", "/api/media?limit=-1", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var resp MediaListResponse
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, len(resp.Items), 25, "Should return all items")
+		assert.Equal(t, resp.Total, resp.Limit, "Limit should equal total when fetching all")
+	})
+
+	t.Run("Raised maximum limit to 10000", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/media?limit=10000", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var resp MediaListResponse
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, 10000, resp.Limit, "Should accept 10000 as limit")
+	})
+
+	t.Run("Default limit remains 20 for backward compatibility", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/media", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var resp MediaListResponse
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, 20, resp.Limit, "Default limit should remain 20")
+	})
+
+	t.Run("Unlimited fetch with show filter", func(t *testing.T) {
+		// Create items with specific show name
+		showName := "Unlimited Test Show"
+		for i := 0; i < 15; i++ {
+			m := models.NewMedia(fmt.Sprintf("/test/showtest%d.mp4", i), fmt.Sprintf("Episode %d", i), 1800)
+			m.ShowName = &showName
+			err := repos.Media.Create(context.Background(), m)
+			require.NoError(t, err)
+		}
+
+		req := httptest.NewRequest("GET", "/api/media?limit=-1&show=Unlimited+Test+Show", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var resp MediaListResponse
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, len(resp.Items), 15, "Should return all items for show")
+		assert.Equal(t, resp.Total, resp.Limit, "Limit should equal total when fetching all with filter")
+	})
 }
 
 func TestGetMedia(t *testing.T) {

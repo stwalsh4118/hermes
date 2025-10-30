@@ -169,11 +169,19 @@ func (h *MediaHandler) GetScanStatus(c *gin.Context) {
 func (h *MediaHandler) ListMedia(c *gin.Context) {
 	// Parse pagination parameters
 	limit := 20 // default
+	unlimitedFetch := false
+
 	if limitStr := c.Query("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
-			limit = l
-			if limit > 100 {
-				limit = 100 // max limit
+		if l, err := strconv.Atoi(limitStr); err == nil {
+			if l == -1 {
+				// Special case: fetch all items
+				unlimitedFetch = true
+				limit = 0 // GORM uses 0 for no limit
+			} else if l > 0 {
+				limit = l
+				if limit > 10000 {
+					limit = 10000 // raised max limit for large libraries
+				}
 			}
 		}
 	}
@@ -258,10 +266,16 @@ func (h *MediaHandler) ListMedia(c *gin.Context) {
 		}
 	}
 
+	// Calculate the limit to return in response
+	responseLimit := limit
+	if unlimitedFetch {
+		responseLimit = int(totalCount)
+	}
+
 	c.JSON(http.StatusOK, MediaListResponse{
 		Items:  mediaItems,
 		Total:  int(totalCount),
-		Limit:  limit,
+		Limit:  responseLimit,
 		Offset: offset,
 	})
 }
