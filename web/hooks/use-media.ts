@@ -23,6 +23,14 @@ export function useMedia(params?: MediaQueryParams) {
   });
 }
 
+// Fetch all media (for tree view/library browsing)
+export function useMediaAll() {
+  return useQuery({
+    queryKey: mediaKeys.list({ limit: -1 }),
+    queryFn: () => apiClient.getMedia({ limit: -1 }),
+  });
+}
+
 export function useMediaItem(id: string) {
   return useQuery({
     queryKey: mediaKeys.detail(id),

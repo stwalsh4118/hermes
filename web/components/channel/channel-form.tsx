@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { MediaTree } from "@/components/media";
 import { ChannelPreview } from "./channel-preview";
 import { Channel, PlaylistItem, Media } from "@/lib/types/api";
-import { useMedia } from "@/hooks/use-media";
+import { useMediaAll } from "@/hooks/use-media";
 import { useAddToPlaylist, useRemoveFromPlaylist, useReorderPlaylist, useBulkAddToPlaylist } from "@/hooks/use-playlist";
 import { toast } from "sonner";
 
@@ -47,8 +47,8 @@ export const ChannelForm = memo(function ChannelForm({
   const [localPlaylist, setLocalPlaylist] = useState<PlaylistItem[]>(playlist);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
 
-  // Fetch all media for the tree
-  const { data: mediaResponse, isLoading: isLoadingMedia } = useMedia();
+  // Fetch all media for the tree (no pagination limits)
+  const { data: mediaResponse, isLoading: isLoadingMedia } = useMediaAll();
   const allMedia = mediaResponse?.items || [];
 
   const addToPlaylist = useAddToPlaylist();
