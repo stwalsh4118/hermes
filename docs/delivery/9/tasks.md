@@ -15,7 +15,7 @@ This document lists all tasks associated with PBI 9.
 | 9-2D | [Add Bulk Remove for Playlist Items](./9-2D.md) | Done | Implement bulk removal to replace N individual DELETE requests with single call |
 | 9-3 | [Build Library Scanner Component](./9-3.md) | Done | Create UI for triggering scans and monitoring progress in real-time |
 | 9-4 | [Create Media Library Page with Tree View](./9-4.md) | Done | Build main library page with tree view, search, and filters |
-| 9-5 | [Build Media Detail Modal](./9-5.md) | Proposed | Create modal for viewing complete media metadata and file information |
+| 9-5 | [Build Media Detail Modal](./9-5.md) | Done | Create modal for viewing complete media metadata and file information |
 | 9-6 | [Build Media Editor Modal](./9-6.md) | Proposed | Create modal for editing media metadata with validation |
 | 9-7 | [Add Alternative Table View](./9-7.md) | Proposed | Add optional sortable table view as alternative to tree view |
 | 9-8 | [Add Alternative Grid View](./9-8.md) | Proposed | Add optional thumbnail grid view for visual browsing |
