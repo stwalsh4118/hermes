@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { RetroHeaderLayout } from "@/components/layout/retro-header-layout";
 import { useMedia } from "@/hooks/use-media";
 import { Media } from "@/lib/types/api";
-import { LibraryScanner, MediaTree } from "@/components/media";
+import { LibraryScanner, MediaTree, MediaDetailModal } from "@/components/media";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -25,6 +25,10 @@ export default function LibraryPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showFilter, setShowFilter] = useState<string | null>(null);
   const [needsTranscodingFilter, setNeedsTranscodingFilter] = useState(false);
+
+  // Modal states
+  const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
 
   // Fetch all media (unlimited)
   const { data: mediaResponse, isLoading, isError, refetch } = useMedia({ limit: -1 });
@@ -110,11 +114,24 @@ export default function LibraryPage() {
 
   const hasActiveFilters = searchQuery || showFilter || needsTranscodingFilter;
 
-  // TODO: Integration point for MediaDetailModal (Task 9-5)
-  // When task 9-5 is complete, add state and handler:
-  // const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
-  // Then pass to MediaTree: onEpisodeClick={(media) => setSelectedMedia(media)}
-  // And render: {selectedMedia && <MediaDetailModal media={selectedMedia} onClose={...} />}
+  // Handle episode click to open detail modal
+  const handleEpisodeClick = (media: Media) => {
+    setSelectedMedia(media);
+    setShowDetailModal(true);
+  };
+
+  // Handle edit action from detail modal
+  const handleEdit = () => {
+    // TODO: Integration point for MediaEditorModal (Task 9-6)
+    // Close detail modal and open editor modal
+    setShowDetailModal(false);
+    // Future: setShowEditorModal(true);
+  };
+
+  // Handle delete action from detail modal
+  const handleDeleted = () => {
+    refetch();
+  };
 
   return (
     <RetroHeaderLayout>
@@ -291,6 +308,7 @@ export default function LibraryPage() {
           searchQuery={searchQuery}
           height={600}
           className="mb-8"
+          onEpisodeClick={handleEpisodeClick}
         />
       )}
 
@@ -313,6 +331,15 @@ export default function LibraryPage() {
             </Button>
           </div>
         )}
+
+      {/* Media Detail Modal */}
+      <MediaDetailModal
+        media={selectedMedia}
+        open={showDetailModal}
+        onOpenChange={setShowDetailModal}
+        onEdit={handleEdit}
+        onDeleted={handleDeleted}
+      />
     </RetroHeaderLayout>
   );
 }
