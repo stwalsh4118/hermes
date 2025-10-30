@@ -155,6 +155,6 @@ Results should include both technical data (offset in seconds) and user-friendly
 
 ## Related Tasks
 
-Tasks for this PBI will be defined in [tasks.md](./tasks.md) once PBI moves to "Agreed" status.
+See [tasks.md](./tasks.md) for the complete task list for this PBI.
 
 
