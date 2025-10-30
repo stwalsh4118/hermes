@@ -1,6 +1,6 @@
 # Media Service API
 
-Last Updated: 2025-10-28
+Last Updated: 2025-10-30
 
 ## Repository Methods
 
@@ -258,9 +258,14 @@ curl http://localhost:8080/api/media/scan/{scanId}/status
 List all media items with pagination and filtering
 
 **Query Parameters:**
-- `limit` (optional) - Items per page (default: 20, max: 100)
+- `limit` (optional) - Items per page (default: 20, max: 10000, use -1 for unlimited)
 - `offset` (optional) - Number of items to skip (default: 0)
 - `show` (optional) - Filter by show name
+
+**Special limit values:**
+- `-1` - Fetch all items (unlimited). Useful for tree views with virtual scrolling
+- `1-10000` - Specific page size (values over 10000 are capped at 10000)
+- Default: `20` (for backward compatibility)
 
 **Response (200 OK):**
 ```json
@@ -293,14 +298,20 @@ List all media items with pagination and filtering
 
 **Usage:**
 ```bash
-# List all media
+# List all media (default pagination)
 curl http://localhost:8080/api/media
 
 # With pagination
 curl http://localhost:8080/api/media?limit=10&offset=20
 
+# Fetch all items (unlimited) - for tree views
+curl http://localhost:8080/api/media?limit=-1
+
 # Filter by show
 curl "http://localhost:8080/api/media?show=Friends"
+
+# Filter by show with unlimited fetch
+curl "http://localhost:8080/api/media?show=Friends&limit=-1"
 ```
 
 ### GET /api/media/:id
