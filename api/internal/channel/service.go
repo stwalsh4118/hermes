@@ -16,6 +16,8 @@ import (
 const maxStartTimeFuture = 365 * 24 * time.Hour
 
 // ChannelService handles business logic for channel operations
+//
+//nolint:revive // Service name matches established patterns in codebase
 type ChannelService struct {
 	repos *db.Repositories
 }
