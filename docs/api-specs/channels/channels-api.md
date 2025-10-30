@@ -52,9 +52,10 @@ func NewPlaylistService(database *db.DB, repos *db.Repositories) *PlaylistServic
 func (s *PlaylistService) AddToPlaylist(ctx context.Context, channelID, mediaID uuid.UUID, position int) (*models.PlaylistItem, error)
 func (s *PlaylistService) BulkAddToPlaylist(ctx context.Context, channelID uuid.UUID, items []BulkAddItem) ([]*models.PlaylistItem, error)
 func (s *PlaylistService) RemoveFromPlaylist(ctx context.Context, itemID uuid.UUID) error
+func (s *PlaylistService) BulkRemoveFromPlaylist(ctx context.Context, channelID uuid.UUID, itemIDs []uuid.UUID) error
 func (s *PlaylistService) ReorderPlaylist(ctx context.Context, channelID uuid.UUID, items []db.ReorderItem) error
 func (s *PlaylistService) GetPlaylist(ctx context.Context, channelID uuid.UUID) ([]*models.PlaylistItem, error)
-func (s *PlaylistService) CalculateDuration(ctx context.Context, channelID uuid.UUID) (int64, error)
+func (s *PlaylistService) CalculateDuration(items []*models.PlaylistItem) int64
 ```
 
 **Business Rules:**
@@ -302,6 +303,31 @@ Add multiple media items to a channel's playlist in one transaction
 - `400 Bad Request` - Invalid UUID format, empty items array, or negative positions
 - `404 Not Found` - Channel or one/more media items not found
 - `500 Internal Server Error` - Failed to bulk add to playlist
+
+### DELETE /api/channels/:id/playlist/bulk
+Remove multiple items from a channel's playlist in one transaction
+
+**Request:**
+```json
+{
+  "item_ids": ["uuid1", "uuid2", "uuid3"]
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "removed": 3,
+  "message": "Items removed successfully"
+}
+```
+
+**Note:** All deletions happen atomically, and remaining items are automatically renumbered sequentially using a single SQL statement with ROW_NUMBER() window function.
+
+**Errors:**
+- `400 Bad Request` - Invalid UUID format or empty item_ids array
+- `404 Not Found` - One or more playlist items not found
+- `500 Internal Server Error` - Failed to remove from playlist
 
 ### DELETE /api/channels/:id/playlist/:item_id
 Remove an item from a channel's playlist
