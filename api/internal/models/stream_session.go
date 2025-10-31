@@ -27,37 +27,41 @@ type StreamQuality struct {
 // StreamSession represents an active streaming session
 // This is NOT persisted to database, only kept in memory
 type StreamSession struct {
-	ID             uuid.UUID       `json:"id"`
-	ChannelID      uuid.UUID       `json:"channel_id"`
-	StartedAt      time.Time       `json:"started_at"`
-	ClientCount    int             `json:"client_count"`
-	FFmpegPID      int             `json:"ffmpeg_pid"`
-	State          string          `json:"state"`            // Current stream state (stored as string to avoid import cycle)
-	Qualities      []StreamQuality `json:"qualities"`        // Quality variants being generated
-	LastAccessTime time.Time       `json:"last_access_time"` // When last client interacted
-	ErrorCount     int             `json:"error_count"`      // Number of errors encountered
-	LastError      string          `json:"last_error"`       // Most recent error message
-	SegmentPath    string          `json:"segment_path"`     // Directory where segments are stored
-	OutputDir      string          `json:"output_dir"`       // Base directory for stream output
-	mu             sync.RWMutex
+	ID                  uuid.UUID       `json:"id"`
+	ChannelID           uuid.UUID       `json:"channel_id"`
+	StartedAt           time.Time       `json:"started_at"`
+	ClientCount         int             `json:"client_count"`
+	FFmpegPID           int             `json:"ffmpeg_pid"`
+	State               string          `json:"state"`                 // Current stream state (stored as string to avoid import cycle)
+	Qualities           []StreamQuality `json:"qualities"`             // Quality variants being generated
+	LastAccessTime      time.Time       `json:"last_access_time"`      // When last client interacted
+	ErrorCount          int             `json:"error_count"`           // Number of errors encountered
+	LastError           string          `json:"last_error"`            // Most recent error message
+	SegmentPath         string          `json:"segment_path"`          // Directory where segments are stored
+	OutputDir           string          `json:"output_dir"`            // Base directory for stream output
+	RestartCount        int             `json:"restart_count"`         // Number of restart attempts
+	HardwareAccelFailed bool            `json:"hardware_accel_failed"` // Whether hardware acceleration has failed
+	mu                  sync.RWMutex
 }
 
 // NewStreamSession creates a new stream session
 func NewStreamSession(channelID uuid.UUID) *StreamSession {
 	now := time.Now().UTC()
 	return &StreamSession{
-		ID:             uuid.New(),
-		ChannelID:      channelID,
-		StartedAt:      now,
-		ClientCount:    0,
-		FFmpegPID:      0,
-		State:          "idle", // Start in idle state
-		Qualities:      make([]StreamQuality, 0),
-		LastAccessTime: now,
-		ErrorCount:     0,
-		LastError:      "",
-		SegmentPath:    "",
-		OutputDir:      "",
+		ID:                  uuid.New(),
+		ChannelID:           channelID,
+		StartedAt:           now,
+		ClientCount:         0,
+		FFmpegPID:           0,
+		State:               "idle", // Start in idle state
+		Qualities:           make([]StreamQuality, 0),
+		LastAccessTime:      now,
+		ErrorCount:          0,
+		LastError:           "",
+		SegmentPath:         "",
+		OutputDir:           "",
+		RestartCount:        0,
+		HardwareAccelFailed: false,
 	}
 }
 
@@ -232,4 +236,39 @@ func (s *StreamSession) SetOutputDir(dir string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.OutputDir = dir
+}
+
+// GetRestartCount returns the restart count (thread-safe)
+func (s *StreamSession) GetRestartCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.RestartCount
+}
+
+// IncrementRestartCount increments the restart counter (thread-safe)
+func (s *StreamSession) IncrementRestartCount() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.RestartCount++
+}
+
+// ResetRestartCount resets the restart counter (thread-safe)
+func (s *StreamSession) ResetRestartCount() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.RestartCount = 0
+}
+
+// GetHardwareAccelFailed returns whether hardware acceleration has failed (thread-safe)
+func (s *StreamSession) GetHardwareAccelFailed() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.HardwareAccelFailed
+}
+
+// SetHardwareAccelFailed sets whether hardware acceleration has failed (thread-safe)
+func (s *StreamSession) SetHardwareAccelFailed(failed bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.HardwareAccelFailed = failed
 }
