@@ -12,7 +12,7 @@ This document lists all tasks associated with PBI 6.
 | 6-2 | [FFmpeg Command Builder](./6-2.md) | Done | Build FFmpeg commands for HLS generation with quality variants |
 | 6-3 | [Stream Session Types & Models](./6-3.md) | Done | Define data structures for stream management and session tracking |
 | 6-4 | [HLS Playlist Generator](./6-4.md) | Done | Generate master and media playlists with real-time updates |
-| 6-5 | [Stream Manager Service](./6-5.md) | Proposed | Orchestrate stream lifecycle and manage FFmpeg processes |
+| 6-5 | [Stream Manager Service](./6-5.md) | Review | Orchestrate stream lifecycle and manage FFmpeg processes |
 | 6-6 | [Timeline Position to FFmpeg Input](./6-6.md) | Proposed | Calculate start position and build FFmpeg input from playlist |
 | 6-7 | [Stream REST Endpoints](./6-7.md) | Proposed | Implement HLS streaming endpoints with client tracking |
 | 6-8 | [Error Handling & Recovery](./6-8.md) | Proposed | Implement crash detection, restart logic, and fallback mechanisms |

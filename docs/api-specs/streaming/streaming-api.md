@@ -972,6 +972,408 @@ All session operations are thread-safe:
 - Safe for concurrent access from multiple goroutines
 - All tests pass with `-race` flag
 
+## Stream Manager Service
+
+Location: `internal/streaming/manager.go`
+
+### StreamManager Type
+
+```go
+type StreamManager struct {
+    repos           *db.Repositories
+    timelineService *timeline.TimelineService
+    sessionManager  *SessionManager
+    config          *config.StreamingConfig
+    cleanupTicker   *time.Ticker
+    stopChan        chan struct{}
+    cleanupDone     chan struct{}
+    mu              sync.RWMutex
+    stopped         bool
+}
+
+func NewStreamManager(
+    repos *db.Repositories,
+    timelineService *timeline.TimelineService,
+    cfg *config.StreamingConfig,
+) *StreamManager
+
+func (m *StreamManager) Start() error
+func (m *StreamManager) Stop()
+func (m *StreamManager) StartStream(ctx context.Context, channelID uuid.UUID) (*models.StreamSession, error)
+func (m *StreamManager) StopStream(ctx context.Context, channelID uuid.UUID) error
+func (m *StreamManager) GetStream(channelID uuid.UUID) (*models.StreamSession, bool)
+func (m *StreamManager) RegisterClient(ctx context.Context, channelID uuid.UUID) (*models.StreamSession, error)
+func (m *StreamManager) UnregisterClient(ctx context.Context, channelID uuid.UUID) error
+```
+
+Central orchestrator for the streaming pipeline. Manages stream lifecycle, coordinates FFmpeg processes, tracks client connections with grace periods, and ensures proper resource cleanup.
+
+### NewStreamManager
+
+Creates a new stream manager instance with the required dependencies.
+
+**Parameters:**
+- `repos` - Database repositories for accessing channels and media
+- `timelineService` - Timeline service for calculating current playback positions
+- `cfg` - Streaming configuration (hardware accel, segment paths, grace periods)
+
+**Returns:**
+- `*StreamManager` - Initialized stream manager (not yet started)
+
+**Usage:**
+```go
+repos := db.NewRepositories(database)
+timelineService := timeline.NewTimelineService(repos)
+streamManager := streaming.NewStreamManager(repos, timelineService, &cfg.Streaming)
+```
+
+### Start
+
+Initializes the stream manager and starts background cleanup goroutine.
+
+**Returns:**
+- `error` - ErrManagerStopped if already stopped, nil on success
+
+**Process:**
+1. Creates cleanup ticker based on configuration
+2. Starts background cleanup goroutine
+3. Logs startup with cleanup interval and grace period settings
+
+**Usage:**
+```go
+if err := streamManager.Start(); err != nil {
+    return fmt.Errorf("failed to start stream manager: %w", err)
+}
+```
+
+### Stop
+
+Gracefully shuts down the stream manager.
+
+**Process:**
+1. Signals cleanup goroutine to stop
+2. Waits for cleanup goroutine to finish
+3. Stops cleanup ticker
+4. Stops all active streams
+5. Logs shutdown with count of stopped streams
+
+**Thread Safety:**
+- Safe to call multiple times
+- Idempotent (subsequent calls are no-ops)
+
+**Usage:**
+```go
+streamManager.Stop()
+```
+
+### StartStream
+
+Starts a new stream for a channel or returns existing stream if already active.
+
+**Parameters:**
+- `ctx` - Context for cancellation and timeout
+- `channelID` - UUID of the channel to stream
+
+**Returns:**
+- `*models.StreamSession` - Active stream session
+- `error` - One of:
+  - `ErrManagerStopped` - Manager has been stopped
+  - Channel not found errors
+  - Timeline calculation errors
+  - FFmpeg launch errors
+
+**Process:**
+1. Checks if stream already exists → returns immediately if found
+2. Fetches channel from database
+3. Gets current timeline position (what should be playing now)
+4. Fetches media file information
+5. Creates output directories for segments
+6. Builds FFmpeg command with timeline seek position
+7. Launches FFmpeg process
+8. Creates StreamSession with process info
+9. Stores session in SessionManager
+10. Starts background process monitor
+11. Returns session
+
+**Concurrent Behavior:**
+- Multiple clients can call StartStream for same channel
+- First call creates stream, subsequent calls return existing
+- Thread-safe via SessionManager
+
+**Usage:**
+```go
+session, err := streamManager.StartStream(ctx, channelID)
+if err != nil {
+    return fmt.Errorf("failed to start stream: %w", err)
+}
+
+fmt.Printf("Stream started: %s\n", session.ID)
+fmt.Printf("FFmpeg PID: %d\n", session.GetFFmpegPID())
+```
+
+### StopStream
+
+Stops a stream and cleans up all resources.
+
+**Parameters:**
+- `ctx` - Context for cancellation and timeout
+- `channelID` - UUID of the channel stream to stop
+
+**Returns:**
+- `error` - ErrStreamNotFound if stream doesn't exist
+
+**Process:**
+1. Gets stream session from manager
+2. Sets state to Stopping
+3. Terminates FFmpeg process (SIGTERM, then SIGKILL if needed)
+4. Cleans up segment files from disk
+5. Removes session from SessionManager
+
+**Resource Cleanup:**
+- FFmpeg process terminated gracefully (5s timeout) then forcefully
+- All segment files and directories removed
+- Session removed from memory
+
+**Usage:**
+```go
+if err := streamManager.StopStream(ctx, channelID); err != nil {
+    if errors.Is(err, streaming.ErrStreamNotFound) {
+        // Stream wasn't running
+        return nil
+    }
+    return err
+}
+```
+
+### GetStream
+
+Retrieves a stream session by channel ID.
+
+**Parameters:**
+- `channelID` - UUID of the channel
+
+**Returns:**
+- `*models.StreamSession` - Stream session if found
+- `bool` - true if session exists, false otherwise
+
+**Thread Safety:**
+- Read-only operation
+- Safe for concurrent access
+
+**Usage:**
+```go
+session, found := streamManager.GetStream(channelID)
+if !found {
+    // Stream not active
+    return nil
+}
+
+clientCount := session.GetClientCount()
+state := session.GetState()
+```
+
+### RegisterClient
+
+Registers a client connection for a channel (starts stream if needed).
+
+**Parameters:**
+- `ctx` - Context for cancellation and timeout
+- `channelID` - UUID of the channel to stream
+
+**Returns:**
+- `*models.StreamSession` - Active stream session
+- `error` - Same errors as StartStream
+
+**Process:**
+1. Calls StartStream (creates new or returns existing)
+2. Increments client count on session
+3. Updates last access time
+4. Returns session
+
+**Client Tracking:**
+- Client count used for cleanup decisions
+- Multiple clients share same stream instance
+- Last access time updated for grace period calculation
+
+**Usage:**
+```go
+session, err := streamManager.RegisterClient(ctx, channelID)
+if err != nil {
+    return fmt.Errorf("failed to register client: %w", err)
+}
+
+// Use session for streaming
+playlistPath := session.GetQualities()[0].PlaylistPath
+```
+
+### UnregisterClient
+
+Unregisters a client connection from a channel.
+
+**Parameters:**
+- `ctx` - Context for cancellation and timeout
+- `channelID` - UUID of the channel
+
+**Returns:**
+- `error` - ErrStreamNotFound if stream doesn't exist
+
+**Process:**
+1. Gets stream session
+2. Decrements client count
+3. Updates last access time
+4. Grace period starts automatically if client count reaches zero
+
+**Grace Period Behavior:**
+- When last client disconnects, grace period timer starts
+- Stream continues running during grace period
+- If no client reconnects before grace period expires, cleanup goroutine stops stream
+- If client reconnects during grace period, stream continues without interruption
+
+**Usage:**
+```go
+if err := streamManager.UnregisterClient(ctx, channelID); err != nil {
+    // Log warning but don't fail - client already disconnected
+    logger.Log.Warn().Err(err).Msg("Failed to unregister client")
+}
+```
+
+### Background Cleanup
+
+The stream manager runs a background goroutine that periodically checks for idle streams.
+
+**Cleanup Process:**
+1. Runs every `CleanupInterval` seconds (from config)
+2. Iterates through all active sessions
+3. Checks if session should be cleaned up:
+   - Client count == 0 (no active clients)
+   - Idle duration > grace period (from config)
+4. Calls StopStream for eligible sessions
+5. Cleans up orphaned segment directories
+
+**Configuration:**
+- `CleanupInterval` - How often cleanup runs (default: 60 seconds)
+- `GracePeriodSeconds` - How long to keep idle streams (default: 30 seconds)
+
+**Graceful Shutdown:**
+- Stop() signals cleanup goroutine to exit
+- Waits for cleanup to finish before proceeding
+- Ensures no resource leaks on shutdown
+
+### Errors
+
+```go
+var (
+    ErrStreamNotFound      = errors.New("stream not found")
+    ErrStreamAlreadyExists = errors.New("stream already exists")
+    ErrManagerStopped      = errors.New("stream manager has been stopped")
+)
+```
+
+### Process Management (process.go)
+
+**launchFFmpeg:**
+```go
+func launchFFmpeg(cmd *FFmpegCommand) (*exec.Cmd, error)
+```
+
+Launches an FFmpeg process with stdout/stderr capture for logging.
+
+**terminateProcess:**
+```go
+func terminateProcess(pid int) error
+```
+
+Terminates a process gracefully (SIGTERM) then forcefully (SIGKILL) if needed.
+- Timeout: 5 seconds for graceful termination
+- Falls back to SIGKILL after timeout
+
+**captureFFmpegOutput:**
+```go
+func captureFFmpegOutput(pid int, reader io.Reader, streamName string)
+```
+
+Captures and logs FFmpeg output, detecting errors for alerting.
+
+### Resource Cleanup (cleanup.go)
+
+**createSegmentDirectories:**
+```go
+func createSegmentDirectories(baseDir, channelID string) error
+```
+
+Creates directory structure for stream segments (1080p, 720p, 480p subdirectories).
+
+**cleanupSegments:**
+```go
+func cleanupSegments(outputDir string) error
+```
+
+Removes all segment files and directories for a channel.
+
+**cleanupOrphanedDirectories:**
+```go
+func cleanupOrphanedDirectories(baseDir string, activeSessions []*models.StreamSession) error
+```
+
+Removes segment directories for channels that no longer have active streams.
+
+### Complete Usage Example
+
+```go
+package main
+
+import (
+    "context"
+    "time"
+    
+    "github.com/stwalsh4118/hermes/internal/config"
+    "github.com/stwalsh4118/hermes/internal/db"
+    "github.com/stwalsh4118/hermes/internal/streaming"
+    "github.com/stwalsh4118/hermes/internal/timeline"
+)
+
+func main() {
+    // Load configuration
+    cfg, _ := config.Load()
+    
+    // Initialize database
+    database, _ := db.New(cfg.Database.Path)
+    repos := db.NewRepositories(database)
+    
+    // Create timeline service
+    timelineService := timeline.NewTimelineService(repos)
+    
+    // Create and start stream manager
+    streamManager := streaming.NewStreamManager(repos, timelineService, &cfg.Streaming)
+    if err := streamManager.Start(); err != nil {
+        panic(err)
+    }
+    defer streamManager.Stop()
+    
+    // Register a client (starts stream automatically)
+    ctx := context.Background()
+    channelID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
+    
+    session, err := streamManager.RegisterClient(ctx, channelID)
+    if err != nil {
+        panic(err)
+    }
+    
+    // Get stream information
+    qualities := session.GetQualities()
+    playlistPath := qualities[0].PlaylistPath
+    
+    // Client watches stream...
+    time.Sleep(10 * time.Minute)
+    
+    // Unregister client
+    streamManager.UnregisterClient(ctx, channelID)
+    
+    // Stream continues for grace period (30s default)
+    // Then automatically stops via cleanup goroutine
+}
+```
+
 ## REST Endpoints
 
 To be defined during implementation.
