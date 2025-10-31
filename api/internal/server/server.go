@@ -78,6 +78,7 @@ func (s *Server) setupRouter() {
 	api.SetupHealthRoutes(apiGroup, s.db)
 	api.SetupMediaRoutes(apiGroup, s.scanner, s.repos)
 	api.SetupChannelRoutes(apiGroup, s.channelService, s.playlistService, s.timelineService)
+	api.SetupStreamRoutes(apiGroup, s.streamManager)
 }
 
 // Start starts the HTTP server
