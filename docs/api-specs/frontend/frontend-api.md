@@ -1,6 +1,37 @@
 # Frontend Infrastructure API
 
-Last Updated: 2025-10-30 (Media detail modal and format utilities added)
+Last Updated: 2025-10-31 (HLS.js added for video streaming)
+
+## Video Streaming
+
+### HLS.js
+
+Location: `node_modules/hls.js`
+
+**HLS.js 1.6.13** installed for HTTP Live Streaming playback in browsers that support Media Source Extensions (all modern browsers except Safari, which has native HLS support).
+
+**Basic Usage:**
+```typescript
+import Hls from 'hls.js';
+
+if (Hls.isSupported()) {
+  const hls = new Hls({
+    enableWorker: true,
+    lowLatencyMode: true,
+  });
+  hls.loadSource('/stream/channel-id/master.m3u8');
+  hls.attachMedia(videoElement);
+} else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
+  // Safari native HLS
+  videoElement.src = '/stream/channel-id/master.m3u8';
+}
+```
+
+**Features:**
+- Adaptive bitrate streaming
+- Built-in TypeScript definitions (no @types needed)
+- ~240KB minified
+- Automatic browser detection
 
 ## Utilities
 
