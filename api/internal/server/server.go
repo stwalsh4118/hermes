@@ -15,6 +15,7 @@ import (
 	"github.com/stwalsh4118/hermes/internal/logger"
 	"github.com/stwalsh4118/hermes/internal/media"
 	"github.com/stwalsh4118/hermes/internal/middleware"
+	"github.com/stwalsh4118/hermes/internal/streaming"
 	"github.com/stwalsh4118/hermes/internal/timeline"
 )
 
@@ -27,6 +28,7 @@ type Server struct {
 	channelService  *channel.ChannelService
 	playlistService *channel.PlaylistService
 	timelineService *timeline.TimelineService
+	streamManager   *streaming.StreamManager
 	router          *gin.Engine
 	server          *http.Server
 }
@@ -38,6 +40,7 @@ func New(cfg *config.Config, database *db.DB) *Server {
 	channelService := channel.NewChannelService(repos)
 	playlistService := channel.NewPlaylistService(database, repos)
 	timelineService := timeline.NewTimelineService(repos)
+	streamManager := streaming.NewStreamManager(repos, timelineService, &cfg.Streaming)
 
 	return &Server{
 		config:          cfg,
@@ -47,6 +50,7 @@ func New(cfg *config.Config, database *db.DB) *Server {
 		channelService:  channelService,
 		playlistService: playlistService,
 		timelineService: timelineService,
+		streamManager:   streamManager,
 	}
 }
 
@@ -80,6 +84,11 @@ func (s *Server) setupRouter() {
 func (s *Server) Start() error {
 	s.setupRouter()
 
+	// Start stream manager
+	if err := s.streamManager.Start(); err != nil {
+		return fmt.Errorf("failed to start stream manager: %w", err)
+	}
+
 	addr := fmt.Sprintf("%s:%d", s.config.Server.Host, s.config.Server.Port)
 
 	s.server = &http.Server{
@@ -101,6 +110,11 @@ func (s *Server) Start() error {
 // Shutdown gracefully shuts down the server
 func (s *Server) Shutdown(ctx context.Context) error {
 	logger.Log.Info().Msg("Shutting down server gracefully")
+
+	// Stop the stream manager
+	if s.streamManager != nil {
+		s.streamManager.Stop()
+	}
 
 	// Stop the scanner cleanup goroutine
 	if s.scanner != nil {
