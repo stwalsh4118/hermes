@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -139,6 +140,15 @@ func (m *StreamManager) StartStream(ctx context.Context, channelID uuid.UUID) (*
 	logger.Log.Info().
 		Str("channel_id", channelIDStr).
 		Msg("Starting new stream")
+
+	// Check disk space before starting stream
+	if err := checkDiskSpace(m.config.SegmentPath); err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("segment_path", m.config.SegmentPath).
+			Msg("Insufficient disk space to start stream")
+		return nil, ErrInsufficientDiskSpace
+	}
 
 	// Fetch channel from database
 	channel, err := m.repos.Channels.GetByID(ctx, channelID)
@@ -278,6 +288,9 @@ func (m *StreamManager) StopStream(_ context.Context, channelID uuid.UUID) error
 	// Remove session from manager
 	m.sessionManager.Delete(channelIDStr)
 
+	// Remove circuit breaker
+	m.sessionManager.DeleteCircuitBreaker(channelIDStr)
+
 	logger.Log.Info().
 		Str("channel_id", channelIDStr).
 		Msg("Stream stopped successfully")
@@ -401,18 +414,94 @@ func (m *StreamManager) performCleanup() {
 }
 
 // monitorFFmpegProcess monitors an FFmpeg process and handles crashes
-func (m *StreamManager) monitorFFmpegProcess(channelID uuid.UUID, _ interface{}) {
-	// This will be implemented in process.go and integrated here
-	// For now, this is a placeholder that will monitor process exit
+func (m *StreamManager) monitorFFmpegProcess(channelID uuid.UUID, cmd interface{}) {
 	channelIDStr := channelID.String()
 
 	logger.Log.Debug().
 		Str("channel_id", channelIDStr).
 		Msg("FFmpeg process monitor started")
 
-	// Wait for process to exit
-	// Process monitoring will be enhanced in process.go
-	// For now, just log when process exits
+	// Type assert to exec.Cmd
+	execCmd, ok := cmd.(*exec.Cmd)
+	if !ok {
+		logger.Log.Error().
+			Str("channel_id", channelIDStr).
+			Msg("Invalid command type in process monitor")
+		return
+	}
 
-	// Note: Actual monitoring implementation will be added when we integrate process.go
+	// Wait for process to exit
+	err := execCmd.Wait()
+
+	// Get session to check if stop was intentional
+	session, exists := m.sessionManager.Get(channelIDStr)
+	if !exists {
+		// Session was already cleaned up, likely intentional stop
+		logger.Log.Debug().
+			Str("channel_id", channelIDStr).
+			Msg("FFmpeg process exited, session already cleaned up")
+		return
+	}
+
+	// Check if we're in stopping state (intentional stop)
+	currentState := StreamState(session.GetState())
+	if currentState == StateStopping || currentState == StateIdle {
+		logger.Log.Debug().
+			Str("channel_id", channelIDStr).
+			Str("state", currentState.String()).
+			Msg("FFmpeg process exited during intentional shutdown")
+		return
+	}
+
+	// Process crashed unexpectedly
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelIDStr).
+			Int("ffmpeg_pid", session.GetFFmpegPID()).
+			Msg("FFmpeg process crashed unexpectedly")
+
+		// Update session state and error tracking
+		session.SetState(StateFailed.String())
+		session.IncrementErrorCount()
+		session.SetLastError(err)
+
+		// Classify the error
+		streamErr := ClassifyError(err)
+
+		// Attempt recovery
+		ctx := context.Background()
+		if recoveryErr := m.attemptRecovery(ctx, channelID, streamErr); recoveryErr != nil {
+			logger.Log.Error().
+				Err(recoveryErr).
+				Str("channel_id", channelIDStr).
+				Str("error_type", streamErr.Type.String()).
+				Msg("Failed to recover from FFmpeg crash")
+
+			// If recovery failed, set state to failed
+			if session, ok := m.sessionManager.Get(channelIDStr); ok {
+				session.SetState(StateFailed.String())
+			}
+		}
+	} else {
+		// Process exited cleanly but unexpectedly
+		logger.Log.Warn().
+			Str("channel_id", channelIDStr).
+			Msg("FFmpeg process exited cleanly but unexpectedly")
+
+		// Treat as a crash and attempt restart
+		streamErr := NewStreamError(ErrorTypeFFmpegCrash, "FFmpeg exited unexpectedly", nil)
+
+		ctx := context.Background()
+		if recoveryErr := m.attemptRecovery(ctx, channelID, streamErr); recoveryErr != nil {
+			logger.Log.Error().
+				Err(recoveryErr).
+				Str("channel_id", channelIDStr).
+				Msg("Failed to restart stream after unexpected exit")
+
+			if session, ok := m.sessionManager.Get(channelIDStr); ok {
+				session.SetState(StateFailed.String())
+			}
+		}
+	}
 }
