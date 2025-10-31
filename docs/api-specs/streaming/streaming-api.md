@@ -1715,7 +1715,187 @@ if err != nil {
 
 ## REST Endpoints
 
-To be defined during implementation.
+Location: `internal/api/stream.go`
+
+### GET /api/stream/:channel_id/master.m3u8
+
+Serves the master playlist listing all quality variants for adaptive bitrate streaming. Automatically registers the client and starts the stream if not already active.
+
+**Parameters:**
+- `channel_id` (path) - UUID of the channel
+
+**Response (200 OK):**
+```m3u8
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-STREAM-INF:BANDWIDTH=5192000,RESOLUTION=1920x1080
+1080p.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=3192000,RESOLUTION=1280x720
+720p.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=1692000,RESOLUTION=854x480
+480p.m3u8
+```
+
+**Headers:**
+- `Content-Type: application/vnd.apple.mpegurl`
+- `Cache-Control: public, max-age=60`
+
+**Error Responses:**
+- `400 Bad Request` - Invalid channel UUID format
+- `404 Not Found` - Channel not found
+- `503 Service Unavailable` - Stream starting (retry in a moment) or service unavailable
+
+**Notes:**
+- First request to this endpoint starts the stream
+- Increments client count in stream session
+- Master playlist can be cached briefly (60 seconds)
+- CORS headers handled globally by server middleware
+
+### GET /api/stream/:channel_id/:quality
+
+Serves quality-specific media playlist containing segment references. The quality parameter should include the .m3u8 extension (e.g., "1080p.m3u8").
+
+**Parameters:**
+- `channel_id` (path) - UUID of the channel
+- `quality` (path) - Quality level with .m3u8 extension: "1080p.m3u8", "720p.m3u8", or "480p.m3u8"
+
+**Response (200 OK):**
+```m3u8
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:6
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-PLAYLIST-TYPE:EVENT
+#EXTINF:6.0,
+channel_id_1080p_segment_000.ts
+#EXTINF:6.0,
+channel_id_1080p_segment_001.ts
+```
+
+**Headers:**
+- `Content-Type: application/vnd.apple.mpegurl`
+- `Cache-Control: no-cache, no-store, must-revalidate`
+
+**Error Responses:**
+- `400 Bad Request` - Invalid channel UUID or invalid quality
+- `404 Not Found` - Stream not active
+- `503 Service Unavailable` - Playlist not yet generated
+
+**Notes:**
+- Updates last access time for stream
+- Media playlists MUST NOT be cached (live content)
+- HLS clients typically request this every few seconds
+- CORS headers handled globally by server middleware
+
+### GET /api/stream/:channel_id/:quality/:segment
+
+Serves individual video segment files.
+
+**Parameters:**
+- `channel_id` (path) - UUID of the channel
+- `quality` (path) - Quality level: "1080p", "720p", or "480p"
+- `segment` (path) - Segment filename (must end with .ts)
+
+**Response (200 OK):**
+Binary video segment data
+
+**Headers:**
+- `Content-Type: video/MP2T`
+- `Cache-Control: public, max-age=31536000, immutable`
+
+**Error Responses:**
+- `400 Bad Request` - Invalid parameters or directory traversal attempt
+- `404 Not Found` - Stream not active or segment not found
+- `500 Internal Server Error` - Stream configuration error
+
+**Security:**
+- Validates segment filename contains no directory traversal characters (.., /, \)
+- Verifies resolved path is within expected directory
+- Only serves .ts files
+- Explicit error handling for filepath.Abs to prevent security bypass
+
+**Notes:**
+- Updates last access time for stream
+- Segments can be cached permanently (immutable content)
+- Filename format: `channel_id_quality_segment_NNN.ts`
+- CORS headers handled globally by server middleware
+
+### DELETE /api/stream/:channel_id/client
+
+Explicitly unregisters a client from a stream.
+
+**Parameters:**
+- `channel_id` (path) - UUID of the channel
+
+**Response (200 OK):**
+```json
+{
+  "message": "Client unregistered successfully"
+}
+```
+
+**Error Responses:**
+- `400 Bad Request` - Invalid channel UUID format
+- `404 Not Found` - Stream not found or already stopped
+- `500 Internal Server Error` - Failed to unregister
+
+**Notes:**
+- Decrements client count
+- Grace period starts when client count reaches zero
+- Optional endpoint - cleanup handles automatic expiration
+- Stream stops after grace period (default 30s) if no clients reconnect
+
+### Usage Example
+
+**With curl:**
+```bash
+# Get master playlist (starts stream)
+curl http://localhost:8080/api/stream/550e8400-e29b-41d4-a716-446655440000/master.m3u8
+
+# Get media playlist for 1080p
+curl http://localhost:8080/api/stream/550e8400-e29b-41d4-a716-446655440000/1080p.m3u8
+
+# Get a segment
+curl http://localhost:8080/api/stream/550e8400-e29b-41d4-a716-446655440000/1080p/channel_id_1080p_segment_000.ts -o segment.ts
+
+# Unregister client
+curl -X DELETE http://localhost:8080/api/stream/550e8400-e29b-41d4-a716-446655440000/client
+```
+
+**With VLC:**
+```bash
+vlc http://localhost:8080/api/stream/550e8400-e29b-41d4-a716-446655440000/master.m3u8
+```
+
+**With HLS.js (JavaScript):**
+```javascript
+const video = document.querySelector('video');
+const hls = new Hls();
+hls.loadSource('http://localhost:8080/api/stream/550e8400-e29b-41d4-a716-446655440000/master.m3u8');
+hls.attachMedia(video);
+```
+
+### Streaming Flow
+
+1. **Client requests master playlist** → Stream Manager starts stream if needed
+2. **Client parses master playlist** → Selects quality based on bandwidth
+3. **Client requests media playlist** → Gets current segment list
+4. **Client downloads segments** → Plays video
+5. **Client polls media playlist** → Gets updated segment list (every ~6s)
+6. **Client disconnects** → Grace period starts
+7. **After grace period** → Stream stops if no clients reconnected
+
+### Performance Considerations
+
+- **Master playlist**: Rarely changes, can cache for 60s
+- **Media playlists**: Update frequently, no caching
+- **Segments**: Immutable once generated, cache permanently
+- **Client tracking**: Updates last access time on each request
+- **Cleanup**: Automatic after 30s grace period (configurable)
+
+### CORS
+
+All endpoints include `Access-Control-Allow-Origin: *` header for browser-based players. For production, configure more restrictive CORS policies.
 
 ## Service Interfaces
 
