@@ -3,8 +3,6 @@ package config
 import (
 	"os"
 	"testing"
-
-	"github.com/stwalsh4118/hermes/internal/streaming"
 )
 
 func TestConfigDefaults(t *testing.T) {
@@ -93,7 +91,7 @@ func TestConfigValidation(t *testing.T) {
 					Pretty: false,
 				},
 				Streaming: StreamingConfig{
-					HardwareAccel:      streaming.HardwareAccelAuto,
+					HardwareAccel:      "auto",
 					SegmentDuration:    6,
 					PlaylistSize:       10,
 					SegmentPath:        "./data/streams",
@@ -120,7 +118,7 @@ func TestConfigValidation(t *testing.T) {
 					Level: "info",
 				},
 				Streaming: StreamingConfig{
-					HardwareAccel:      streaming.HardwareAccelAuto,
+					HardwareAccel:      "auto",
 					SegmentDuration:    6,
 					PlaylistSize:       10,
 					SegmentPath:        "./data/streams",
@@ -147,7 +145,7 @@ func TestConfigValidation(t *testing.T) {
 					Level: "invalid",
 				},
 				Streaming: StreamingConfig{
-					HardwareAccel:      streaming.HardwareAccelAuto,
+					HardwareAccel:      "auto",
 					SegmentDuration:    6,
 					PlaylistSize:       10,
 					SegmentPath:        "./data/streams",
@@ -174,7 +172,7 @@ func TestConfigValidation(t *testing.T) {
 					Level: "info",
 				},
 				Streaming: StreamingConfig{
-					HardwareAccel:      streaming.HardwareAccel("invalid"),
+					HardwareAccel:      "invalid",
 					SegmentDuration:    6,
 					PlaylistSize:       10,
 					SegmentPath:        "./data/streams",
@@ -201,7 +199,7 @@ func TestConfigValidation(t *testing.T) {
 					Level: "info",
 				},
 				Streaming: StreamingConfig{
-					HardwareAccel:      streaming.HardwareAccelAuto,
+					HardwareAccel:      "auto",
 					SegmentDuration:    0,
 					PlaylistSize:       10,
 					SegmentPath:        "./data/streams",
@@ -228,7 +226,7 @@ func TestConfigValidation(t *testing.T) {
 					Level: "info",
 				},
 				Streaming: StreamingConfig{
-					HardwareAccel:      streaming.HardwareAccelAuto,
+					HardwareAccel:      "auto",
 					SegmentDuration:    6,
 					PlaylistSize:       -1,
 					SegmentPath:        "./data/streams",
@@ -255,7 +253,7 @@ func TestConfigValidation(t *testing.T) {
 					Level: "info",
 				},
 				Streaming: StreamingConfig{
-					HardwareAccel:      streaming.HardwareAccelAuto,
+					HardwareAccel:      "auto",
 					SegmentDuration:    6,
 					PlaylistSize:       10,
 					SegmentPath:        "",
@@ -282,7 +280,7 @@ func TestConfigValidation(t *testing.T) {
 					Level: "info",
 				},
 				Streaming: StreamingConfig{
-					HardwareAccel:      streaming.HardwareAccelAuto,
+					HardwareAccel:      "auto",
 					SegmentDuration:    6,
 					PlaylistSize:       10,
 					SegmentPath:        "./data/streams",
@@ -309,7 +307,7 @@ func TestConfigValidation(t *testing.T) {
 					Level: "info",
 				},
 				Streaming: StreamingConfig{
-					HardwareAccel:      streaming.HardwareAccelNVENC,
+					HardwareAccel:      "nvenc",
 					SegmentDuration:    6,
 					PlaylistSize:       10,
 					SegmentPath:        "./data/streams",
@@ -336,7 +334,7 @@ func TestConfigValidation(t *testing.T) {
 					Level: "info",
 				},
 				Streaming: StreamingConfig{
-					HardwareAccel:      streaming.HardwareAccelAuto,
+					HardwareAccel:      "auto",
 					SegmentDuration:    6,
 					PlaylistSize:       10,
 					SegmentPath:        "./data/streams",
@@ -380,7 +378,7 @@ func TestStreamingConfigEnvVars(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.Streaming.HardwareAccel != streaming.HardwareAccelNVENC {
+	if cfg.Streaming.HardwareAccel != "nvenc" {
 		t.Errorf("Streaming.HardwareAccel = %s, want nvenc", cfg.Streaming.HardwareAccel)
 	}
 	if cfg.Streaming.SegmentDuration != 10 {

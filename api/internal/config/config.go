@@ -10,7 +10,6 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
-	"github.com/stwalsh4118/hermes/internal/streaming"
 )
 
 const (
@@ -23,7 +22,7 @@ const (
 	defaultLogLevel                  = "info"
 	defaultLogPretty                 = false
 	defaultDatabaseEnableWAL         = true
-	defaultStreamingHardwareAccel    = streaming.HardwareAccelAuto
+	defaultStreamingHardwareAccel    = "auto"
 	defaultStreamingSegmentDuration  = 6
 	defaultStreamingPlaylistSize     = 10
 	defaultStreamingSegmentPath      = "./data/streams"
@@ -70,12 +69,12 @@ type MediaConfig struct {
 
 // StreamingConfig holds video streaming configuration
 type StreamingConfig struct {
-	HardwareAccel      streaming.HardwareAccel // none, nvenc, qsv, vaapi, videotoolbox, auto
-	SegmentDuration    int                     // HLS segment duration in seconds
-	PlaylistSize       int                     // Number of segments to keep in playlist
-	SegmentPath        string                  // Directory for storing stream segments
-	GracePeriodSeconds int                     // Time to keep stream alive after last client disconnects
-	CleanupInterval    int                     // How often to cleanup old segments in seconds
+	HardwareAccel      string // none, nvenc, qsv, vaapi, videotoolbox, auto
+	SegmentDuration    int    // HLS segment duration in seconds
+	PlaylistSize       int    // Number of segments to keep in playlist
+	SegmentPath        string // Directory for storing stream segments
+	GracePeriodSeconds int    // Time to keep stream alive after last client disconnects
+	CleanupInterval    int    // How often to cleanup old segments in seconds
 }
 
 // Load reads configuration from .env file, config files, environment variables, and defaults
@@ -178,9 +177,9 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate streaming configuration
-	if !c.Streaming.HardwareAccel.IsValid() {
-		validOptions := []string{"none", "nvenc", "qsv", "vaapi", "videotoolbox", "auto"}
-		return fmt.Errorf("invalid hardware acceleration: %s (must be one of: %s)", c.Streaming.HardwareAccel, strings.Join(validOptions, ", "))
+	validHWAccel := []string{"none", "nvenc", "qsv", "vaapi", "videotoolbox", "auto"}
+	if !contains(validHWAccel, c.Streaming.HardwareAccel) {
+		return fmt.Errorf("invalid hardware acceleration: %s (must be one of: %s)", c.Streaming.HardwareAccel, strings.Join(validHWAccel, ", "))
 	}
 
 	if c.Streaming.SegmentDuration <= 0 {
