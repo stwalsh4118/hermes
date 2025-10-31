@@ -1,9 +1,12 @@
+"use client";
+
 import { use } from "react";
-import { MainLayout } from "@/components/layout/main-layout";
-import { PageHeader } from "@/components/layout/page-header";
-import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { Pencil } from "lucide-react";
+import { RetroHeaderLayout } from "@/components/layout/retro-header-layout";
+import { useChannel } from "@/hooks/use-channels";
+import { LoadingSpinner } from "@/components/common/loading-spinner";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft } from "lucide-react";
 
 export default function ChannelPlayerPage({
   params,
@@ -11,27 +14,78 @@ export default function ChannelPlayerPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  
-  return (
-    <MainLayout>
-      <PageHeader
-        title={`Channel ${id}`}
-        description="Live channel player"
-        actions={
-          <Button asChild variant="outline">
-            <Link href={`/channels/${id}/edit`}>
-              <Pencil className="h-4 w-4 mr-2" />
-              Edit
+  const { data: channel, isLoading, isError } = useChannel(id);
+
+  // Loading State
+  if (isLoading) {
+    return (
+      <RetroHeaderLayout>
+        <div className="flex items-center justify-center py-12">
+          <LoadingSpinner />
+        </div>
+      </RetroHeaderLayout>
+    );
+  }
+
+  // Error State
+  if (isError || !channel) {
+    return (
+      <RetroHeaderLayout>
+        <div className="bg-card rounded-xl p-8 border-4 border-destructive shadow-[8px_8px_0_rgba(0,0,0,0.6)] text-center">
+          <p className="text-destructive font-bold text-lg vcr-text">Channel not found</p>
+          <p className="text-muted-foreground mt-2">
+            The channel you&apos;re looking for doesn&apos;t exist or has been deleted
+          </p>
+          <Button
+            asChild
+            className="mt-4 retro-button"
+          >
+            <Link href="/channels">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Channels
             </Link>
           </Button>
-        }
-      />
-      <div className="mt-6">
-        <p className="text-muted-foreground">
-          Channel player will be implemented in PBI-10
-        </p>
+        </div>
+      </RetroHeaderLayout>
+    );
+  }
+
+  // Success State
+  return (
+    <RetroHeaderLayout>
+      {/* Page Header with Channel Name and Back Button */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button
+              asChild
+              variant="outline"
+              className="retro-button"
+            >
+              <Link href="/channels">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back
+              </Link>
+            </Button>
+            <h1 className="text-3xl font-bold text-foreground vcr-text">{channel.name}</h1>
+          </div>
+        </div>
       </div>
-    </MainLayout>
+
+      {/* Video Player Area - Placeholder for task 10-3 */}
+      <div className="bg-black/80 rounded-xl p-12 border-4 border-primary shadow-[8px_8px_0_rgba(0,0,0,0.6)] text-center">
+        <div className="aspect-video flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-muted-foreground font-mono text-lg mb-2">
+              Video player will be integrated in task 10-3
+            </p>
+            <p className="text-muted-foreground/60 text-sm">
+              Channel: {channel.name} • Loop: {channel.loop ? "Yes" : "No"}
+            </p>
+          </div>
+        </div>
+      </div>
+    </RetroHeaderLayout>
   );
 }
 
