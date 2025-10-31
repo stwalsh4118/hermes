@@ -1331,16 +1331,62 @@ Next.js 15 App Router with file-system based routing.
 - `app/channels/loading.tsx` - Channels loading state
 
 **Dynamic Routes:**
+
+Next.js 15 uses Promise-based params for dynamic routes. Use React's `use()` hook to unwrap:
+
 ```typescript
-// Access route params in page component
+import { use } from "react";
+
 export default function ChannelPlayerPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  // Use params.id
+  const { id } = use(params);
+  // Use id to fetch data
 }
 ```
+
+### Channel Player Page
+
+**Route**: `/channels/[id]`  
+**File**: `web/app/channels/[id]/page.tsx`
+
+Client-side page that displays a channel's video player and details.
+
+**Features**:
+- Fetches channel data using `useChannel(id)` hook
+- Loading state with centered spinner
+- Error state with "Channel not found" message for invalid IDs
+- Success state with channel name header and back button
+- Full-width layout optimized for video player
+- Retro styling consistent with app theme
+
+**State Handling**:
+
+```typescript
+const { data: channel, isLoading, isError } = useChannel(id);
+
+// Loading: Shows LoadingSpinner in RetroHeaderLayout
+// Error: Shows error card with back button
+// Success: Shows channel name and video player area
+```
+
+**Layout Structure**:
+- Uses `RetroHeaderLayout` for consistent navigation
+- Back button navigates to `/channels` list
+- Channel name displayed in header with VCR-style typography
+- Dark player area with 16:9 aspect ratio
+- Placeholder text for video player integration (task 10-3)
+
+**Error Handling**:
+- Invalid UUID: Displays "Channel not found" error
+- Network errors: Handled by TanStack Query with error state
+- Back button always available to return to channel list
+
+**Metadata**:
+- Client component, relies on root layout metadata
+- Page title/description inherited from app layout
 
 ## Configuration
 
