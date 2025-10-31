@@ -75,14 +75,16 @@ type StreamQuality struct {
 
 // SessionManager manages a collection of active streaming sessions with thread-safe operations
 type SessionManager struct {
-	sessions map[string]*models.StreamSession // key: channelID as string
-	mu       sync.RWMutex
+	sessions        map[string]*models.StreamSession // key: channelID as string
+	circuitBreakers map[string]*CircuitBreaker       // key: channelID as string
+	mu              sync.RWMutex
 }
 
 // NewSessionManager creates a new SessionManager
 func NewSessionManager() *SessionManager {
 	return &SessionManager{
-		sessions: make(map[string]*models.StreamSession),
+		sessions:        make(map[string]*models.StreamSession),
+		circuitBreakers: make(map[string]*CircuitBreaker),
 	}
 }
 
@@ -132,4 +134,33 @@ func (m *SessionManager) GetAll(filter func(*models.StreamSession) bool) []*mode
 		}
 	}
 	return sessions
+}
+
+// GetCircuitBreaker retrieves the circuit breaker for a channel (thread-safe)
+func (m *SessionManager) GetCircuitBreaker(channelID string) (*CircuitBreaker, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cb, ok := m.circuitBreakers[channelID]
+	return cb, ok
+}
+
+// GetOrCreateCircuitBreaker gets or creates a circuit breaker for a channel (thread-safe)
+func (m *SessionManager) GetOrCreateCircuitBreaker(channelID string) *CircuitBreaker {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if cb, ok := m.circuitBreakers[channelID]; ok {
+		return cb
+	}
+
+	cb := NewCircuitBreaker(CircuitBreakerThreshold, CircuitBreakerResetTimeout)
+	m.circuitBreakers[channelID] = cb
+	return cb
+}
+
+// DeleteCircuitBreaker removes a circuit breaker for a channel (thread-safe)
+func (m *SessionManager) DeleteCircuitBreaker(channelID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.circuitBreakers, channelID)
 }
