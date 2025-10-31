@@ -15,6 +15,6 @@ This document lists all tasks associated with PBI 6.
 | 6-5 | [Stream Manager Service](./6-5.md) | Review | Orchestrate stream lifecycle and manage FFmpeg processes |
 | 6-6 | [Timeline Position to FFmpeg Input](./6-6.md) | Done | Calculate start position and build FFmpeg input from playlist |
 | 6-7 | [Stream REST Endpoints](./6-7.md) | Done | Implement HLS streaming endpoints with client tracking |
-| 6-8 | [Error Handling & Recovery](./6-8.md) | Proposed | Implement crash detection, restart logic, and fallback mechanisms |
+| 6-8 | [Error Handling & Recovery](./6-8.md) | Done | Implement crash detection, restart logic, and fallback mechanisms |
 | 6-9 | [Integration Tests](./6-9.md) | Proposed | Test streaming with real video files and multi-client scenarios |
 | 6-10 | [E2E CoS Testing](./6-10.md) | Proposed | Comprehensive acceptance criteria validation and performance testing |

@@ -1897,6 +1897,380 @@ hls.attachMedia(video);
 
 All endpoints include `Access-Control-Allow-Origin: *` header for browser-based players. For production, configure more restrictive CORS policies.
 
+## Error Handling & Recovery
+
+Location: `internal/streaming/errors.go`, `internal/streaming/recovery.go`, `internal/streaming/circuit_breaker.go`
+
+### Error Classification
+
+```go
+type ErrorType int
+
+const (
+    ErrorTypeFFmpegCrash      // FFmpeg process crashed unexpectedly
+    ErrorTypeFileMissing      // Input file doesn't exist
+    ErrorTypeFileCorrupt      // Input file is corrupted or invalid
+    ErrorTypeHardwareEncoder  // Hardware encoder failed
+    ErrorTypeDiskSpace        // Insufficient disk space
+    ErrorTypePlaylistEnd      // Playlist reached end (non-looping)
+    ErrorTypeTimeout          // Operation timed out
+)
+
+type ErrorSeverity int
+
+const (
+    SeverityInfo       // Informational events
+    SeverityWarning    // Recoverable issues
+    SeverityError      // Errors that may be recoverable with retry
+    SeverityCritical   // Critical errors requiring immediate action
+)
+```
+
+### StreamError Type
+
+```go
+type StreamError struct {
+    Type        ErrorType
+    Severity    ErrorSeverity
+    Message     string
+    Cause       error
+    Recoverable bool
+}
+
+func NewStreamError(errorType ErrorType, message string, cause error) *StreamError
+func ClassifyError(err error) *StreamError
+func ParseFFmpegError(stderr string) *StreamError
+```
+
+Structured error type with classification and recoverability information.
+
+**Usage:**
+```go
+streamErr := streaming.NewStreamError(
+    streaming.ErrorTypeFFmpegCrash,
+    "FFmpeg process crashed",
+    originalErr,
+)
+
+// Or classify from generic error
+streamErr := streaming.ClassifyError(err)
+
+// Parse from FFmpeg stderr
+streamErr := streaming.ParseFFmpegError(stderrOutput)
+```
+
+### Error Classification Rules
+
+**Critical Errors (Not Recoverable):**
+- `ErrorTypeDiskSpace` - Stop stream, cannot continue without disk space
+- `ErrorTypePlaylistEnd` (non-looping) - Expected termination
+
+**Recoverable Errors (Automatic Retry):**
+- `ErrorTypeFFmpegCrash` - Restart stream with exponential backoff
+- `ErrorTypeFileMissing` - Skip to next playlist item
+- `ErrorTypeFileCorrupt` - Skip to next playlist item
+- `ErrorTypeHardwareEncoder` - Fallback to software encoding
+- `ErrorTypeTimeout` - Retry with backoff
+
+### Circuit Breaker Pattern
+
+Prevents infinite restart loops by tracking consecutive failures.
+
+```go
+type CircuitBreaker struct {
+    failureThreshold int           // Number of failures before opening (default: 3)
+    resetTimeout     time.Duration // Time before trying again (default: 60s)
+    state            CircuitState  // Current state
+}
+
+type CircuitState int
+
+const (
+    StateClosed    // Normal operation, failures counted
+    StateOpen      // Blocking calls, failure threshold exceeded
+    StateHalfOpen  // Testing if system recovered
+)
+```
+
+**State Transitions:**
+```
+Closed ─(failures >= threshold)─> Open
+Open ─(timeout elapsed)─> HalfOpen
+HalfOpen ─(success)─> Closed
+HalfOpen ─(failure)─> Open
+```
+
+**Per-Channel Circuit Breakers:**
+- Each channel has its own circuit breaker
+- Stored in SessionManager, keyed by channel ID
+- Automatically created when needed
+- Cleaned up when stream stops
+
+**Usage:**
+```go
+// Get or create circuit breaker for channel
+cb := sessionManager.GetOrCreateCircuitBreaker(channelID)
+
+// Check if can attempt operation
+if !cb.CanAttempt() {
+    return ErrCircuitOpen
+}
+
+// Execute with circuit breaker
+err := cb.Call(func() error {
+    return riskyOperation()
+})
+
+// Manual recording
+cb.RecordSuccess()
+cb.RecordFailure()
+```
+
+### Recovery Strategies
+
+#### Automatic Stream Restart
+
+Used for transient FFmpeg crashes.
+
+**Process:**
+1. Check circuit breaker state (fail fast if open)
+2. Check restart count (max 3 attempts)
+3. Calculate exponential backoff (1s, 2s, 4s, 8s)
+4. Wait for backoff period
+5. Stop current stream (cleanup resources)
+6. Start new stream
+7. Reset errors on success, or trip circuit breaker on failure
+
+**Configuration:**
+```go
+const (
+    MaxRestartAttempts = 3
+    InitialBackoff     = 1 * time.Second
+    MaxBackoff         = 8 * time.Second
+)
+```
+
+#### File Error Handling
+
+Skip to next playlist item when current file fails.
+
+**Process:**
+1. Log file error with path
+2. Fetch channel playlist from database
+3. Find current position in playlist
+4. Get next valid playlist items
+5. Restart stream (timeline service calculates new position)
+6. Return `ErrPlaylistEnded` if no more items (non-looping)
+
+**Applicable Errors:**
+- `ErrorTypeFileMissing`
+- `ErrorTypeFileCorrupt`
+
+#### Hardware Encoder Fallback
+
+Disable hardware acceleration and use software encoding.
+
+**Process:**
+1. Detect hardware encoder failure from FFmpeg stderr
+2. Log fallback event (warning level)
+3. Mark hardware acceleration as failed in session
+4. Update global config to `HardwareAccelNone`
+5. Restart stream with software encoding
+6. Configuration persists for future streams
+
+**Trigger Patterns:**
+- "Cannot load nvcuda"
+- "QSV not available"
+- "VAAPI failed"
+- "VideoToolbox failed"
+
+#### Disk Space Monitoring
+
+Prevent stream startup when disk space insufficient.
+
+**Implementation:**
+```go
+func checkDiskSpace(path string) error
+func getAvailableSpace(path string) (uint64, error)
+```
+
+**Thresholds:**
+- Minimum required: 5GB (blocks stream start)
+- Warning threshold: 10GB (logs warning but allows)
+
+**Integration Points:**
+- Checked before starting stream (`StartStream`)
+- Periodic check during cleanup cycle
+- Triggers cleanup if space low
+
+### Recovery Constants
+
+```go
+const (
+    MinDiskSpaceBytes          = 5 * 1024 * 1024 * 1024  // 5GB
+    WarnDiskSpaceBytes         = 10 * 1024 * 1024 * 1024 // 10GB
+    MaxRestartAttempts         = 3
+    CircuitBreakerThreshold    = 3
+    CircuitBreakerResetTimeout = 60 * time.Second
+    InitialBackoff             = 1 * time.Second
+    MaxBackoff                 = 8 * time.Second
+)
+```
+
+### Stream State Tracking
+
+Enhanced `StreamSession` model tracks recovery state:
+
+```go
+type StreamSession struct {
+    // ... existing fields ...
+    ErrorCount          int    // Consecutive errors
+    LastError           string // Last error message
+    RestartCount        int    // Restart attempts
+    HardwareAccelFailed bool   // Hardware fallback applied
+}
+```
+
+**Methods:**
+```go
+session.IncrementErrorCount()
+session.GetErrorCount()
+session.ResetErrors()
+session.SetLastError(err)
+session.GetLastError()
+session.IncrementRestartCount()
+session.GetRestartCount()
+session.ResetRestartCount()
+session.SetHardwareAccelFailed(bool)
+session.GetHardwareAccelFailed()
+```
+
+### Monitoring & Logging
+
+All recovery events are logged with structured data:
+
+**Example Logs:**
+
+```go
+// FFmpeg crash detected
+logger.Log.Error().
+    Err(err).
+    Str("channel_id", channelID).
+    Int("ffmpeg_pid", pid).
+    Int("error_count", errorCount).
+    Msg("FFmpeg process crashed unexpectedly")
+
+// Recovery attempt
+logger.Log.Info().
+    Str("channel_id", channelID).
+    Str("reason", "FFmpeg crash").
+    Int("restart_count", restartCount).
+    Dur("backoff", backoff).
+    Msg("Attempting stream restart")
+
+// Circuit breaker tripped
+logger.Log.Error().
+    Str("channel_id", channelID).
+    Str("circuit_state", "open").
+    Int("failures", failureCount).
+    Msg("Circuit breaker is open, cannot restart stream")
+
+// Hardware fallback
+logger.Log.Warn().
+    Str("channel_id", channelID).
+    Str("previous_hw_accel", "nvenc").
+    Msg("Hardware encoder failed, falling back to software encoding")
+```
+
+**Log Levels:**
+- `Debug`: Recovery attempts, state transitions, circuit breaker checks
+- `Info`: Successful recovery, circuit breaker state changes
+- `Warn`: Hardware fallback, file skipping, disk space warnings
+- `Error`: Failed recovery, critical errors, circuit breaker trips
+
+### Error Codes
+
+**Manager Errors:**
+```go
+var (
+    ErrStreamNotFound         = errors.New("stream not found")
+    ErrManagerStopped         = errors.New("stream manager has been stopped")
+    ErrCircuitOpen            = errors.New("circuit breaker is open")
+    ErrInsufficientDiskSpace  = StreamError // Critical severity
+    ErrPlaylistEnded          = StreamError // Info severity
+)
+```
+
+### Recovery Workflow Example
+
+Complete workflow for handling FFmpeg crash:
+
+```go
+// 1. Process monitor detects crash
+err := execCmd.Wait()
+
+// 2. Classify error
+streamErr := streaming.ClassifyError(err)
+
+// 3. Update session state
+session.SetState(streaming.StateFailed.String())
+session.IncrementErrorCount()
+session.SetLastError(err)
+
+// 4. Attempt recovery
+if recoveryErr := manager.attemptRecovery(ctx, channelID, streamErr); recoveryErr != nil {
+    // Recovery failed - log and mark as failed
+    logger.Log.Error().
+        Err(recoveryErr).
+        Str("channel_id", channelID).
+        Msg("Failed to recover from FFmpeg crash")
+    session.SetState(streaming.StateFailed.String())
+}
+
+// 5. Recovery routes to appropriate handler based on error type
+switch streamErr.Type {
+case ErrorTypeFFmpegCrash:
+    return manager.restartStream(ctx, channelID, "FFmpeg crash")
+case ErrorTypeHardwareEncoder:
+    return manager.fallbackToSoftwareEncoding(ctx, channelID)
+case ErrorTypeFileMissing, ErrorTypeFileCorrupt:
+    return manager.handleFileError(ctx, channelID, filePath, streamErr.Type)
+// ... other error types
+}
+
+// 6. Restart process
+// - Check circuit breaker
+// - Calculate backoff
+// - Stop current stream
+// - Start new stream
+// - Reset errors on success
+```
+
+### Testing Recovery
+
+**Unit Tests:** (`errors_test.go`, `circuit_breaker_test.go`, `recovery_test.go`)
+- Error classification logic
+- Circuit breaker state transitions
+- Backoff duration calculation
+- Disk space checks
+
+**Integration Tests:** (task 6-9)
+- FFmpeg crash and restart
+- Missing file handling
+- Circuit breaker behavior under load
+- Hardware fallback scenarios
+
+### Best Practices
+
+1. **Always check disk space before starting streams**
+2. **Monitor circuit breaker state to detect patterns**
+3. **Log all recovery attempts with context**
+4. **Set reasonable backoff intervals to avoid overwhelming system**
+5. **Test recovery paths with real failure scenarios**
+6. **Document error patterns for operations team**
+7. **Alert on circuit breaker trips (production)**
+8. **Track recovery success rate metrics**
+
 ## Service Interfaces
 
 To be defined during implementation.
