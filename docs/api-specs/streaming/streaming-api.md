@@ -1197,15 +1197,18 @@ Location: `internal/streaming/manager.go`
 
 ```go
 type StreamManager struct {
-    repos           *db.Repositories
-    timelineService *timeline.TimelineService
-    sessionManager  *SessionManager
-    config          *config.StreamingConfig
-    cleanupTicker   *time.Ticker
-    stopChan        chan struct{}
-    cleanupDone     chan struct{}
-    mu              sync.RWMutex
-    stopped         bool
+    repos               *db.Repositories
+    timelineService     *timeline.TimelineService
+    sessionManager      *SessionManager
+    config              *config.StreamingConfig
+    cleanupTicker       *time.Ticker
+    batchTicker          *time.Ticker
+    batchTriggerInterval time.Duration
+    stopChan            chan struct{}
+    cleanupDone         chan struct{}
+    batchDone           chan struct{}
+    mu                  sync.RWMutex
+    stopped             bool
 }
 
 func NewStreamManager(
@@ -1254,7 +1257,9 @@ Initializes the stream manager and starts background cleanup goroutine.
 **Process:**
 1. Creates cleanup ticker based on configuration
 2. Starts background cleanup goroutine
-3. Logs startup with cleanup interval and grace period settings
+3. Creates batch coordinator ticker (2 second interval)
+4. Starts batch coordinator goroutine
+5. Logs startup with cleanup interval, grace period, and batch trigger interval settings
 
 **Usage:**
 ```go
@@ -1269,14 +1274,17 @@ Gracefully shuts down the stream manager.
 
 **Process:**
 1. Signals cleanup goroutine to stop
-2. Waits for cleanup goroutine to finish
-3. Stops cleanup ticker
-4. Stops all active streams
-5. Logs shutdown with count of stopped streams
+2. Waits for cleanup goroutine to finish (only if started)
+3. Stops cleanup ticker (only if created)
+4. Waits for batch coordinator goroutine to finish (only if started)
+5. Stops batch coordinator ticker (only if created)
+6. Stops all active streams
+7. Logs shutdown with count of stopped streams
 
 **Thread Safety:**
 - Safe to call multiple times
 - Idempotent (subsequent calls are no-ops)
+- Safe to call even if Start() was never called (no deadlock)
 
 **Usage:**
 ```go
@@ -1474,7 +1482,65 @@ The stream manager runs a background goroutine that periodically checks for idle
 **Graceful Shutdown:**
 - Stop() signals cleanup goroutine to exit
 - Waits for cleanup to finish before proceeding
+- Waits for batch coordinator to finish before proceeding
 - Ensures no resource leaks on shutdown
+
+### Batch Coordinator
+
+The stream manager runs a background goroutine that periodically monitors client positions and triggers batch generation when needed.
+
+**Batch Coordinator Process:**
+1. Runs every 2 seconds (default `batchTriggerInterval`)
+2. Iterates through all active sessions
+3. Skips streams with no active clients (`GetClientCount() == 0`)
+4. For each stream with active clients:
+   - Calls `ShouldGenerateNextBatch(TriggerThreshold)` on the session
+   - If threshold reached, launches `generateNextBatch()` in a goroutine (non-blocking)
+5. Handles errors gracefully (logs and continues)
+
+**Batch Generation Triggering:**
+- Checks `session.ShouldGenerateNextBatch(config.TriggerThreshold)`
+- Returns `true` when:
+  - Current batch exists and is complete (`IsComplete == true`)
+  - Segments remaining <= trigger threshold
+  - Formula: `(EndSegment - FurthestSegment) <= TriggerThreshold`
+- Batch generation runs asynchronously in goroutine to avoid blocking coordinator
+
+**Configuration:**
+- `batchTriggerInterval` - How often coordinator checks positions (default: 2 seconds)
+- `TriggerThreshold` - Number of segments remaining before triggering next batch (default: 5)
+- `BatchSize` - Number of segments per batch (default: 20)
+
+**Concurrency Safety:**
+- Coordinator uses thread-safe `SessionManager.List()` to get sessions
+- StreamSession methods (`GetClientCount`, `ShouldGenerateNextBatch`) are thread-safe
+- Multiple concurrent batch generations for different streams are safe (different sessions)
+- Batch generation launched in goroutine prevents blocking coordinator
+
+**Graceful Shutdown:**
+- Stop() signals batch coordinator to exit via `stopChan`
+- Waits for batch coordinator to finish before proceeding
+- Ensures no batch generation starts during shutdown
+
+**Methods:**
+
+**runBatchCoordinator:**
+```go
+func (m *StreamManager) runBatchCoordinator()
+```
+Background goroutine that runs periodic batch checks. Uses ticker with `batchTriggerInterval` and select statement for graceful shutdown.
+
+**checkAndTriggerBatches:**
+```go
+func (m *StreamManager) checkAndTriggerBatches()
+```
+Checks all active streams and triggers batch generation when threshold is reached. Skips streams with no clients. Launches batch generation in goroutine for non-blocking operation.
+
+**generateNextBatch:**
+```go
+func (m *StreamManager) generateNextBatch(ctx context.Context, session *models.StreamSession) error
+```
+Generates the next batch of segments for a stream session. Currently a stub implementation - full logic will be implemented in task 12-6. Logs batch generation need with channel ID and batch information.
 
 ### Errors
 
