@@ -24,17 +24,24 @@ var (
 	ErrManagerStopped      = errors.New("stream manager has been stopped")
 )
 
+const (
+	defaultBatchTriggerInterval = 2 * time.Second
+)
+
 // StreamManager orchestrates the entire streaming pipeline
 type StreamManager struct {
-	repos           *db.Repositories
-	timelineService *timeline.TimelineService
-	sessionManager  *SessionManager
-	config          *config.StreamingConfig
-	cleanupTicker   *time.Ticker
-	stopChan        chan struct{}
-	cleanupDone     chan struct{}
-	mu              sync.RWMutex
-	stopped         bool
+	repos                *db.Repositories
+	timelineService      *timeline.TimelineService
+	sessionManager       *SessionManager
+	config               *config.StreamingConfig
+	cleanupTicker        *time.Ticker
+	batchTicker          *time.Ticker
+	batchTriggerInterval time.Duration
+	stopChan             chan struct{}
+	cleanupDone          chan struct{}
+	batchDone            chan struct{}
+	mu                   sync.RWMutex
+	stopped              bool
 }
 
 // NewStreamManager creates a new stream manager instance
@@ -44,13 +51,15 @@ func NewStreamManager(
 	cfg *config.StreamingConfig,
 ) *StreamManager {
 	return &StreamManager{
-		repos:           repos,
-		timelineService: timelineService,
-		sessionManager:  NewSessionManager(),
-		config:          cfg,
-		stopChan:        make(chan struct{}),
-		cleanupDone:     make(chan struct{}),
-		stopped:         false,
+		repos:                repos,
+		timelineService:      timelineService,
+		sessionManager:       NewSessionManager(),
+		config:               cfg,
+		batchTriggerInterval: defaultBatchTriggerInterval,
+		stopChan:             make(chan struct{}),
+		cleanupDone:          make(chan struct{}),
+		batchDone:            make(chan struct{}),
+		stopped:              false,
 	}
 }
 
@@ -70,9 +79,16 @@ func (m *StreamManager) Start() error {
 	// Start background cleanup goroutine
 	go m.runCleanupLoop()
 
+	// Create batch coordinator ticker
+	m.batchTicker = time.NewTicker(m.batchTriggerInterval)
+
+	// Start batch coordinator goroutine
+	go m.runBatchCoordinator()
+
 	logger.Log.Info().
 		Int("cleanup_interval_seconds", m.config.CleanupInterval).
 		Int("grace_period_seconds", m.config.GracePeriodSeconds).
+		Dur("batch_trigger_interval", m.batchTriggerInterval).
 		Msg("Stream manager started")
 
 	return nil
@@ -93,12 +109,16 @@ func (m *StreamManager) Stop() {
 	// Signal cleanup goroutine to stop
 	close(m.stopChan)
 
-	// Wait for cleanup goroutine to finish
-	<-m.cleanupDone
-
-	// Stop cleanup ticker
+	// Wait for cleanup goroutine to finish (only if it was started)
 	if m.cleanupTicker != nil {
+		<-m.cleanupDone
 		m.cleanupTicker.Stop()
+	}
+
+	// Wait for batch coordinator goroutine to finish (only if it was started)
+	if m.batchTicker != nil {
+		<-m.batchDone
+		m.batchTicker.Stop()
 	}
 
 	// Stop all active streams
@@ -403,6 +423,69 @@ func (m *StreamManager) runCleanupLoop() {
 			m.performCleanup()
 		}
 	}
+}
+
+// runBatchCoordinator runs periodic batch generation checks
+func (m *StreamManager) runBatchCoordinator() {
+	defer close(m.batchDone)
+
+	logger.Log.Debug().Msg("Batch coordinator started")
+
+	for {
+		select {
+		case <-m.stopChan:
+			logger.Log.Debug().Msg("Batch coordinator stopping")
+			return
+		case <-m.batchTicker.C:
+			m.checkAndTriggerBatches()
+		}
+	}
+}
+
+// checkAndTriggerBatches checks all active streams and triggers batch generation when needed
+func (m *StreamManager) checkAndTriggerBatches() {
+	sessions := m.sessionManager.List()
+
+	for _, session := range sessions {
+		// Skip if no active clients
+		if session.GetClientCount() == 0 {
+			continue
+		}
+
+		// Check if next batch should be generated
+		if session.ShouldGenerateNextBatch(m.config.TriggerThreshold) {
+			// Launch batch generation in goroutine to avoid blocking coordinator
+			go func(sess *models.StreamSession) {
+				if err := m.generateNextBatch(context.Background(), sess); err != nil {
+					logger.Log.Error().
+						Err(err).
+						Str("channel_id", sess.ChannelID.String()).
+						Msg("Failed to generate next batch")
+				}
+			}(session)
+		}
+	}
+}
+
+// generateNextBatch generates the next batch of segments for a stream session
+// This is a stub implementation - full logic will be implemented in task 12-6
+func (m *StreamManager) generateNextBatch(ctx context.Context, session *models.StreamSession) error {
+	currentBatch := session.GetCurrentBatch()
+	if currentBatch == nil {
+		logger.Log.Debug().
+			Str("channel_id", session.ChannelID.String()).
+			Msg("No current batch to continue from")
+		return nil
+	}
+
+	logger.Log.Info().
+		Str("channel_id", session.ChannelID.String()).
+		Int("current_batch", currentBatch.BatchNumber).
+		Int("furthest_segment", session.GetFurthestPosition()).
+		Msg("Batch generation needed - stub implementation (full logic in task 12-6)")
+
+	// Full implementation will be added in task 12-6
+	return nil
 }
 
 // performCleanup checks all sessions and stops idle ones past grace period
