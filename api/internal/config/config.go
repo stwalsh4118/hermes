@@ -23,11 +23,12 @@ const (
 	defaultLogPretty                 = false
 	defaultDatabaseEnableWAL         = true
 	defaultStreamingHardwareAccel    = "auto"
-	defaultStreamingSegmentDuration  = 6
+	defaultStreamingSegmentDuration  = 2
 	defaultStreamingPlaylistSize     = 10
 	defaultStreamingSegmentPath      = "./data/streams"
 	defaultStreamingGracePeriod      = 30
 	defaultStreamingCleanupInterval  = 60
+	defaultStreamingEncodingPreset   = "ultrafast"
 	envPrefix                        = "HERMES"
 )
 
@@ -75,6 +76,8 @@ type StreamingConfig struct {
 	SegmentPath        string // Directory for storing stream segments
 	GracePeriodSeconds int    // Time to keep stream alive after last client disconnects
 	CleanupInterval    int    // How often to cleanup old segments in seconds
+	RealtimePacing     bool   // Enable -re flag for 1x speed encoding (true = real-time, false = fast encoding)
+	EncodingPreset     string // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
 }
 
 // Load reads configuration from .env file, config files, environment variables, and defaults
@@ -150,6 +153,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("streaming.segmentpath", defaultStreamingSegmentPath)
 	v.SetDefault("streaming.graceperiodseconds", defaultStreamingGracePeriod)
 	v.SetDefault("streaming.cleanupinterval", defaultStreamingCleanupInterval)
+	v.SetDefault("streaming.realtimepacing", true)
+	v.SetDefault("streaming.encodingpreset", defaultStreamingEncodingPreset)
 }
 
 // Validate checks that configuration values are valid
@@ -200,6 +205,12 @@ func (c *Config) Validate() error {
 
 	if c.Streaming.SegmentPath == "" {
 		return fmt.Errorf("segment path cannot be empty")
+	}
+
+	// Validate encoding preset
+	validPresets := []string{"ultrafast", "veryfast", "fast", "medium", "slow"}
+	if !contains(validPresets, c.Streaming.EncodingPreset) {
+		return fmt.Errorf("invalid encoding preset: %s (must be one of: %s)", c.Streaming.EncodingPreset, strings.Join(validPresets, ", "))
 	}
 
 	// Database path validation will be done when opening DB

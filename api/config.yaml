@@ -23,3 +23,18 @@ media:
   # Uncomment and set your media library path when ready:
   # librarypath: "/path/to/your/media/library"
 
+streaming:
+  hardwareaccel: "nvenc"          # Explicitly use NVIDIA GPU encoding (fast + low CPU)
+  segmentduration: 2              # Reduced from 6 to 2 for faster startup
+  playlistsize: 10                # Keep 10 segments (~20 seconds) in sliding window
+  segmentpath: "./data/streams"
+  graceperiodseconds: 30
+  cleanupinterval: 60
+  realtimepacing: true            # 1x speed encoding = stays just ahead of playback
+  
+  # Encoding optimization with NVENC
+  # - ultrafast (p1): Fastest, good quality, perfect for live streaming
+  # - veryfast (p2): Balanced
+  # - medium (p4):   Better quality, still fast with NVENC
+  encodingpreset: "ultrafast"
+
