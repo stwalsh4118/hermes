@@ -2032,6 +2032,79 @@ Explicitly unregisters a client from a stream.
 - Optional endpoint - cleanup handles automatic expiration
 - Stream stops after grace period (default 30s) if no clients reconnect
 
+### POST /api/stream/:channel_id/position
+
+Accepts client position updates and updates the stream session's client position tracking. This enables the frontend to report playback position so the backend knows when to generate the next batch in just-in-time segment generation mode.
+
+**Parameters:**
+- `channel_id` (path) - UUID of the channel
+
+**Request Body:**
+```json
+{
+  "session_id": "uuid-v4-string",
+  "segment_number": 42,
+  "quality": "1080p",
+  "timestamp": "2025-10-31T12:34:56Z"
+}
+```
+
+**Request Fields:**
+- `session_id` (required) - Client session identifier (UUID v4 format)
+- `segment_number` (required) - Current segment being played (0-indexed, must be >= 0)
+- `quality` (required) - Quality level: "1080p", "720p", or "480p"
+- `timestamp` (optional) - ISO8601 timestamp for debugging purposes
+
+**Response (200 OK):**
+```json
+{
+  "acknowledged": true,
+  "current_batch": 2,
+  "segments_remaining": 8
+}
+```
+
+**Response Fields:**
+- `acknowledged` - Always true on success
+- `current_batch` - Current batch number (0-indexed)
+- `segments_remaining` - Number of segments remaining until end of current batch
+
+**Error Responses:**
+- `400 Bad Request` - Invalid channel UUID format, missing required fields, invalid segment number (< 0), or invalid quality
+- `404 Not Found` - Stream not found or not active
+
+**Notes:**
+- Updates client position in stream session
+- Tracks furthest segment across all clients
+- Used by batch coordinator to determine when to generate next batch
+- Frontend should call this endpoint every 5 seconds during playback
+- No authentication required (internal API, same as other stream endpoints)
+- If no batch is set (stream just starting), returns batch 0 with 0 segments remaining
+- If client is ahead of current batch end, segments_remaining will be 0
+
+**Usage Example:**
+```javascript
+// Report position every 5 seconds
+setInterval(() => {
+  const currentSegment = Math.floor(player.currentTime / segmentDuration);
+  
+  fetch(`/api/stream/${channelId}/position`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      segment_number: currentSegment,
+      quality: currentQuality,
+      timestamp: new Date().toISOString()
+    })
+  })
+    .then(res => res.json())
+    .then(data => {
+      console.log(`Batch ${data.current_batch}, ${data.segments_remaining} segments remaining`);
+    });
+}, 5000);
+```
+
 ### Usage Example
 
 **With curl:**
