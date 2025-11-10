@@ -47,6 +47,7 @@ var (
 	ErrEmptyOutputPath        = errors.New("output path cannot be empty")
 	ErrInvalidSegmentDuration = errors.New("segment duration must be positive")
 	ErrInvalidPlaylistSize    = errors.New("playlist size must be positive")
+	ErrInvalidBatchSize       = errors.New("batch size must be positive when batch mode is enabled")
 )
 
 // StreamParams contains all parameters needed to build an FFmpeg HLS command
@@ -60,6 +61,8 @@ type StreamParams struct {
 	PlaylistSize    int           // Number of segments to keep in playlist
 	RealtimePacing  bool          // Enable -re flag for 1x speed encoding
 	EncodingPreset  string        // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
+	BatchMode       bool          // Enable batch generation mode (generates N segments then exits)
+	BatchSize       int           // Number of segments to generate per batch (required when BatchMode is true)
 }
 
 // FFmpegCommand represents a built FFmpeg command
@@ -176,6 +179,16 @@ func validateStreamParams(params StreamParams) error {
 		return ErrInvalidPlaylistSize
 	}
 
+	// Validate seek seconds
+	if params.SeekSeconds < 0 {
+		return fmt.Errorf("seek seconds must be non-negative, got: %d", params.SeekSeconds)
+	}
+
+	// Validate batch size when batch mode is enabled
+	if params.BatchMode && params.BatchSize <= 0 {
+		return ErrInvalidBatchSize
+	}
+
 	return nil
 }
 
@@ -183,8 +196,9 @@ func validateStreamParams(params StreamParams) error {
 func buildInputArgs(params StreamParams) []string {
 	args := make([]string, 0, 7)
 
-	// Add -re flag for real-time pacing (must come BEFORE -ss and -i)
-	if params.RealtimePacing {
+	// Add -re flag for real-time pacing only if not in batch mode
+	// Batch mode always uses fast encoding (no -re flag)
+	if params.RealtimePacing && !params.BatchMode {
 		args = append(args, "-re")
 	}
 
@@ -193,8 +207,11 @@ func buildInputArgs(params StreamParams) []string {
 		args = append(args, "-ss", strconv.FormatInt(params.SeekSeconds, 10))
 	}
 
-	// Add infinite loop for 24/7 channel behavior (must come BEFORE -i)
-	args = append(args, "-stream_loop", "-1")
+	// Add infinite loop for 24/7 channel behavior only if not in batch mode
+	// Batch mode generates fixed number of segments then exits
+	if !params.BatchMode {
+		args = append(args, "-stream_loop", "-1")
+	}
 
 	// Add input file
 	args = append(args, "-i", params.InputFile)
@@ -274,7 +291,7 @@ func buildHLSArgs(params StreamParams) []string {
 	// Get segment filename pattern from output path
 	segmentPattern := getSegmentFilenamePattern(params.OutputPath)
 
-	return []string{
+	args := []string{
 		"-f", "hls",
 		"-hls_time", strconv.Itoa(params.SegmentDuration),
 		"-hls_list_size", strconv.Itoa(params.PlaylistSize),
@@ -282,6 +299,14 @@ func buildHLSArgs(params StreamParams) []string {
 		"-hls_segment_filename", segmentPattern,
 		// No hls_playlist_type - allows sliding window of recent segments
 	}
+
+	// Add duration limit for batch mode (generates exactly BatchSize segments then exits)
+	if params.BatchMode && params.BatchSize > 0 {
+		totalSeconds := params.BatchSize * params.SegmentDuration
+		args = append(args, "-t", strconv.Itoa(totalSeconds))
+	}
+
+	return args
 }
 
 // getSegmentFilenamePattern generates the segment filename pattern based on output path

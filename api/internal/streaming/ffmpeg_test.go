@@ -338,9 +338,9 @@ func TestBuildHLSCommand_HLSParameters(t *testing.T) {
 		t.Error("Expected hls_flags delete_segments")
 	}
 
-	// Verify stream looping for 24/7 channel behavior
+	// Verify stream looping for 24/7 channel behavior (non-batch mode)
 	if !containsConsecutiveArgs(cmd.Args, "-stream_loop", "-1") {
-		t.Error("Expected stream_loop -1 for infinite looping")
+		t.Error("Expected stream_loop -1 for infinite looping in non-batch mode")
 	}
 
 	// Verify no hls_playlist_type (allows sliding window)
@@ -646,6 +646,257 @@ func TestQualityConstants(t *testing.T) {
 
 	if Quality480p != "480p" {
 		t.Errorf("Expected Quality480p to be '480p', got '%s'", Quality480p)
+	}
+}
+
+// TestBuildHLSCommand_BatchMode tests batch mode command generation
+func TestBuildHLSCommand_BatchMode(t *testing.T) {
+	params := StreamParams{
+		InputFile:       "/media/video.mp4",
+		OutputPath:      "/streams/channel1/1080p.m3u8",
+		Quality:         Quality1080p,
+		HardwareAccel:   HardwareAccelNone,
+		SeekSeconds:     0,
+		SegmentDuration: 2,
+		PlaylistSize:    10,
+		BatchMode:       true,
+		BatchSize:       20,
+	}
+
+	cmd, err := BuildHLSCommand(params)
+	if err != nil {
+		t.Fatalf("BuildHLSCommand failed: %v", err)
+	}
+
+	// Verify -stream_loop is NOT present in batch mode
+	if containsConsecutiveArgs(cmd.Args, "-stream_loop", "-1") {
+		t.Error("Did not expect stream_loop -1 in batch mode")
+	}
+
+	// Verify -t flag is present with correct duration
+	// 20 segments * 2 seconds = 40 seconds
+	if !containsConsecutiveArgs(cmd.Args, "-t", "40") {
+		t.Error("Expected -t flag with duration 40 in batch mode")
+	}
+
+	// Verify -re flag is NOT present even if RealtimePacing would be true
+	// Batch mode always uses fast encoding
+	if containsArg(cmd.Args, "-re") {
+		t.Error("Did not expect -re flag in batch mode")
+	}
+}
+
+// TestBuildHLSCommand_BatchMode_WithRealtimePacing tests that batch mode excludes -re even if RealtimePacing is true
+func TestBuildHLSCommand_BatchMode_WithRealtimePacing(t *testing.T) {
+	params := StreamParams{
+		InputFile:       "/media/video.mp4",
+		OutputPath:      "/streams/channel1/1080p.m3u8",
+		Quality:         Quality1080p,
+		HardwareAccel:   HardwareAccelNone,
+		SeekSeconds:     0,
+		SegmentDuration: 2,
+		PlaylistSize:    10,
+		RealtimePacing:  true, // Set to true but should be ignored in batch mode
+		BatchMode:       true,
+		BatchSize:       20,
+	}
+
+	cmd, err := BuildHLSCommand(params)
+	if err != nil {
+		t.Fatalf("BuildHLSCommand failed: %v", err)
+	}
+
+	// Verify -re flag is NOT present in batch mode
+	if containsArg(cmd.Args, "-re") {
+		t.Error("Did not expect -re flag in batch mode, even when RealtimePacing is true")
+	}
+}
+
+// TestBuildHLSCommand_BatchMode_WithSeeking tests batch mode with seeking
+func TestBuildHLSCommand_BatchMode_WithSeeking(t *testing.T) {
+	params := StreamParams{
+		InputFile:       "/media/video.mp4",
+		OutputPath:      "/streams/channel1/1080p.m3u8",
+		Quality:         Quality1080p,
+		HardwareAccel:   HardwareAccelNone,
+		SeekSeconds:     3600, // Seek to 1 hour
+		SegmentDuration: 2,
+		PlaylistSize:    10,
+		BatchMode:       true,
+		BatchSize:       20,
+	}
+
+	cmd, err := BuildHLSCommand(params)
+	if err != nil {
+		t.Fatalf("BuildHLSCommand failed: %v", err)
+	}
+
+	// Verify -ss appears before -i for fast seeking
+	ssIndex := findArgIndex(cmd.Args, "-ss")
+	iIndex := findArgIndex(cmd.Args, "-i")
+
+	if ssIndex == -1 {
+		t.Error("Expected -ss flag for seeking")
+	}
+
+	if iIndex == -1 {
+		t.Error("Expected -i flag for input")
+	}
+
+	if ssIndex >= iIndex {
+		t.Error("Expected -ss flag to appear before -i flag for fast seeking")
+	}
+
+	// Verify seek value
+	if ssIndex+1 >= len(cmd.Args) || cmd.Args[ssIndex+1] != "3600" {
+		t.Error("Expected seek value of 3600")
+	}
+
+	// Verify -stream_loop is NOT present
+	if containsConsecutiveArgs(cmd.Args, "-stream_loop", "-1") {
+		t.Error("Did not expect stream_loop -1 in batch mode")
+	}
+}
+
+// TestBuildHLSCommand_BatchMode_DurationCalculation tests duration calculation
+func TestBuildHLSCommand_BatchMode_DurationCalculation(t *testing.T) {
+	tests := []struct {
+		name             string
+		batchSize        int
+		segmentDuration  int
+		expectedDuration string
+	}{
+		{
+			name:             "20 segments at 2 seconds",
+			batchSize:        20,
+			segmentDuration:  2,
+			expectedDuration: "40",
+		},
+		{
+			name:             "10 segments at 6 seconds",
+			batchSize:        10,
+			segmentDuration:  6,
+			expectedDuration: "60",
+		},
+		{
+			name:             "5 segments at 4 seconds",
+			batchSize:        5,
+			segmentDuration:  4,
+			expectedDuration: "20",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := StreamParams{
+				InputFile:       "/media/video.mp4",
+				OutputPath:      "/streams/channel1/1080p.m3u8",
+				Quality:         Quality1080p,
+				HardwareAccel:   HardwareAccelNone,
+				SeekSeconds:     0,
+				SegmentDuration: tt.segmentDuration,
+				PlaylistSize:    10,
+				BatchMode:       true,
+				BatchSize:       tt.batchSize,
+			}
+
+			cmd, err := BuildHLSCommand(params)
+			if err != nil {
+				t.Fatalf("BuildHLSCommand failed: %v", err)
+			}
+
+			if !containsConsecutiveArgs(cmd.Args, "-t", tt.expectedDuration) {
+				t.Errorf("Expected -t flag with duration %s, got: %v", tt.expectedDuration, cmd.Args)
+			}
+		})
+	}
+}
+
+// TestBuildHLSCommand_BatchMode_InvalidBatchSize tests validation rejects invalid batch size
+func TestBuildHLSCommand_BatchMode_InvalidBatchSize(t *testing.T) {
+	params := StreamParams{
+		InputFile:       "/media/video.mp4",
+		OutputPath:      "/streams/channel1/1080p.m3u8",
+		Quality:         Quality1080p,
+		HardwareAccel:   HardwareAccelNone,
+		SeekSeconds:     0,
+		SegmentDuration: 6,
+		PlaylistSize:    10,
+		BatchMode:       true,
+		BatchSize:       0, // Invalid: must be > 0 when BatchMode is true
+	}
+
+	_, err := BuildHLSCommand(params)
+	if err == nil {
+		t.Fatal("Expected error for invalid batch size")
+	}
+
+	if !errors.Is(err, ErrInvalidBatchSize) {
+		t.Errorf("Expected ErrInvalidBatchSize, got: %v", err)
+	}
+}
+
+// TestBuildHLSCommand_BatchMode_BackwardCompatibility tests that non-batch mode still works
+func TestBuildHLSCommand_BatchMode_BackwardCompatibility(t *testing.T) {
+	params := StreamParams{
+		InputFile:       "/media/video.mp4",
+		OutputPath:      "/streams/channel1/1080p.m3u8",
+		Quality:         Quality1080p,
+		HardwareAccel:   HardwareAccelNone,
+		SeekSeconds:     0,
+		SegmentDuration: 6,
+		PlaylistSize:    10,
+		BatchMode:       false, // Non-batch mode (default behavior)
+		BatchSize:       0,     // Can be 0 when BatchMode is false
+	}
+
+	cmd, err := BuildHLSCommand(params)
+	if err != nil {
+		t.Fatalf("BuildHLSCommand failed: %v", err)
+	}
+
+	// Verify -stream_loop is present in non-batch mode
+	if !containsConsecutiveArgs(cmd.Args, "-stream_loop", "-1") {
+		t.Error("Expected stream_loop -1 in non-batch mode")
+	}
+
+	// Verify -t flag is NOT present in non-batch mode
+	if containsArg(cmd.Args, "-t") {
+		t.Error("Did not expect -t flag in non-batch mode")
+	}
+}
+
+// TestBuildHLSCommand_BatchMode_ZeroSeekSeconds tests that SeekSeconds=0 works in batch mode
+func TestBuildHLSCommand_BatchMode_ZeroSeekSeconds(t *testing.T) {
+	params := StreamParams{
+		InputFile:       "/media/video.mp4",
+		OutputPath:      "/streams/channel1/1080p.m3u8",
+		Quality:         Quality1080p,
+		HardwareAccel:   HardwareAccelNone,
+		SeekSeconds:     0, // No seeking
+		SegmentDuration: 2,
+		PlaylistSize:    10,
+		BatchMode:       true,
+		BatchSize:       20,
+	}
+
+	cmd, err := BuildHLSCommand(params)
+	if err != nil {
+		t.Fatalf("BuildHLSCommand failed: %v", err)
+	}
+
+	// Verify -ss is NOT present when SeekSeconds is 0
+	if containsArg(cmd.Args, "-ss") {
+		t.Error("Did not expect -ss flag when SeekSeconds is 0")
+	}
+
+	// Verify batch mode flags are still correct
+	if containsConsecutiveArgs(cmd.Args, "-stream_loop", "-1") {
+		t.Error("Did not expect stream_loop -1 in batch mode")
+	}
+
+	if !containsConsecutiveArgs(cmd.Args, "-t", "40") {
+		t.Error("Expected -t flag with duration 40 in batch mode")
 	}
 }
 
