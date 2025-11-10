@@ -17,16 +17,15 @@ var (
 
 // createSegmentDirectories creates the necessary directories for stream segments
 func createSegmentDirectories(baseDir, channelID string) error {
-	// Create base directory for channel
-	channelDir := filepath.Join(baseDir, channelID)
-	if err := os.MkdirAll(channelDir, 0755); err != nil {
+	// Create base directory for channel (baseDir already includes channel ID)
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
 		return fmt.Errorf("%w: %w", ErrDirectoryCreation, err)
 	}
 
 	// Create quality-specific directories
 	qualities := []string{Quality1080p, Quality720p, Quality480p}
 	for _, quality := range qualities {
-		qualityDir := filepath.Join(channelDir, quality)
+		qualityDir := filepath.Join(baseDir, quality)
 		if err := os.MkdirAll(qualityDir, 0755); err != nil {
 			return fmt.Errorf("%w for quality %s: %w", ErrDirectoryCreation, quality, err)
 		}

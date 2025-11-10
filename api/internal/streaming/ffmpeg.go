@@ -36,7 +36,6 @@ const (
 const (
 	defaultSegmentDuration = 6
 	defaultPlaylistSize    = 10
-	hlsPlaylistType        = "event"
 	hlsFlags               = "delete_segments"
 )
 
@@ -59,6 +58,8 @@ type StreamParams struct {
 	SeekSeconds     int64         // Starting position in seconds (0 = beginning)
 	SegmentDuration int           // HLS segment duration in seconds
 	PlaylistSize    int           // Number of segments to keep in playlist
+	RealtimePacing  bool          // Enable -re flag for 1x speed encoding
+	EncodingPreset  string        // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
 }
 
 // FFmpegCommand represents a built FFmpeg command
@@ -118,8 +119,8 @@ func BuildHLSCommand(params StreamParams) (*FFmpegCommand, error) {
 	inputArgs := buildInputArgs(params)
 	args = append(args, inputArgs...)
 
-	// 2. Video encoding args (with hardware acceleration)
-	videoArgs := buildVideoEncodeArgs(params.HardwareAccel)
+	// 2. Video encoding args (with hardware acceleration and preset)
+	videoArgs := buildVideoEncodeArgs(params.HardwareAccel, params.EncodingPreset)
 	args = append(args, videoArgs...)
 
 	// 3. Audio encoding args
@@ -180,12 +181,20 @@ func validateStreamParams(params StreamParams) error {
 
 // buildInputArgs builds input-related FFmpeg arguments
 func buildInputArgs(params StreamParams) []string {
-	args := make([]string, 0, 4)
+	args := make([]string, 0, 7)
+
+	// Add -re flag for real-time pacing (must come BEFORE -ss and -i)
+	if params.RealtimePacing {
+		args = append(args, "-re")
+	}
 
 	// Add seeking if specified (must come BEFORE input for fast seeking)
 	if params.SeekSeconds > 0 {
 		args = append(args, "-ss", strconv.FormatInt(params.SeekSeconds, 10))
 	}
+
+	// Add infinite loop for 24/7 channel behavior (must come BEFORE -i)
+	args = append(args, "-stream_loop", "-1")
 
 	// Add input file
 	args = append(args, "-i", params.InputFile)
@@ -193,23 +202,46 @@ func buildInputArgs(params StreamParams) []string {
 	return args
 }
 
+// mapToNVENCPreset maps software encoding presets to NVENC preset values
+func mapToNVENCPreset(softwarePreset string) string {
+	switch softwarePreset {
+	case "ultrafast":
+		return "p1"
+	case "veryfast":
+		return "p2"
+	case "fast":
+		return "p3"
+	case "medium":
+		return "p4"
+	case "slow":
+		return "p5"
+	default:
+		return "p1" // Default to fastest
+	}
+}
+
 // buildVideoEncodeArgs builds video encoding arguments based on hardware acceleration
-func buildVideoEncodeArgs(hwaccel HardwareAccel) []string {
+func buildVideoEncodeArgs(hwaccel HardwareAccel, preset string) []string {
 	switch hwaccel {
 	case HardwareAccelNVENC:
-		return []string{"-c:v", "h264_nvenc", "-preset", "p1"}
+		// NVENC uses p1-p7 presets
+		nvencPreset := mapToNVENCPreset(preset)
+		return []string{"-c:v", "h264_nvenc", "-preset", nvencPreset}
 	case HardwareAccelQSV:
-		return []string{"-c:v", "h264_qsv", "-preset", "veryfast"}
+		// QSV uses same preset names as software
+		return []string{"-c:v", "h264_qsv", "-preset", preset}
 	case HardwareAccelVAAPI:
+		// VAAPI doesn't support presets in the same way
 		return []string{"-c:v", "h264_vaapi"}
 	case HardwareAccelVideoToolbox:
+		// VideoToolbox doesn't support presets in the same way
 		return []string{"-c:v", "h264_videotoolbox"}
 	case HardwareAccelNone, HardwareAccelAuto:
-		// Software encoding (libx264)
-		return []string{"-c:v", "libx264", "-preset", "veryfast"}
+		// Software encoding (libx264) with preset
+		return []string{"-c:v", "libx264", "-preset", preset}
 	default:
-		// Fallback to software encoding
-		return []string{"-c:v", "libx264", "-preset", "veryfast"}
+		// Fallback to software encoding with preset
+		return []string{"-c:v", "libx264", "-preset", preset}
 	}
 }
 
@@ -248,7 +280,7 @@ func buildHLSArgs(params StreamParams) []string {
 		"-hls_list_size", strconv.Itoa(params.PlaylistSize),
 		"-hls_flags", hlsFlags,
 		"-hls_segment_filename", segmentPattern,
-		"-hls_playlist_type", hlsPlaylistType,
+		// No hls_playlist_type - allows sliding window of recent segments
 	}
 }
 
@@ -266,8 +298,8 @@ func getSegmentFilenamePattern(outputPath string) string {
 }
 
 // GetOutputPath generates a consistent output path for a channel and quality
-func GetOutputPath(baseDir, channelID, quality string) string {
-	return filepath.Join(baseDir, channelID, quality+".m3u8")
+func GetOutputPath(baseDir, quality string) string {
+	return filepath.Join(baseDir, quality, quality+".m3u8")
 }
 
 // GetSegmentPattern generates a consistent segment naming pattern

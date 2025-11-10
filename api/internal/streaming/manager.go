@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -156,28 +157,49 @@ func (m *StreamManager) StartStream(ctx context.Context, channelID uuid.UUID) (*
 		return nil, fmt.Errorf("failed to get channel: %w", err)
 	}
 
+	// TESTING: Skip timeline calculation and start from beginning
 	// Get current timeline position
-	position, err := m.timelineService.GetCurrentPosition(ctx, channelID)
+	// position, err := m.timelineService.GetCurrentPosition(ctx, channelID)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to get timeline position: %w", err)
+	// }
+
+	// logger.Log.Debug().
+	// 	Str("channel_id", channelIDStr).
+	// 	Str("media_id", position.MediaID.String()).
+	// 	Int64("offset_seconds", position.OffsetSeconds).
+	// 	Msg("Timeline position calculated")
+
+	// TESTING: Get first playlist item and start from 0
+	playlistItems, err := m.repos.PlaylistItems.GetWithMedia(ctx, channelID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get timeline position: %w", err)
+		return nil, fmt.Errorf("failed to get playlist items: %w", err)
 	}
+	if len(playlistItems) == 0 {
+		return nil, fmt.Errorf("no playlist items found for channel")
+	}
+
+	// Get the first media item
+	firstItem := playlistItems[0]
+	if firstItem.Media == nil {
+		return nil, fmt.Errorf("first playlist item has no media")
+	}
+
+	offsetSeconds := int64(0) // Start from beginning for testing
 
 	logger.Log.Debug().
 		Str("channel_id", channelIDStr).
-		Str("media_id", position.MediaID.String()).
-		Int64("offset_seconds", position.OffsetSeconds).
-		Msg("Timeline position calculated")
+		Str("media_id", firstItem.MediaID.String()).
+		Int64("offset_seconds", offsetSeconds).
+		Msg("TESTING: Starting from beginning of first playlist item")
 
 	// Get the media file path
-	media, err := m.repos.Media.GetByID(ctx, position.MediaID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get media: %w", err)
-	}
+	media := firstItem.Media
 
 	// Build output paths
 	outputDir := fmt.Sprintf("%s/%s", m.config.SegmentPath, channelIDStr)
 	quality := Quality1080p // Start with 1080p for now
-	outputPath := GetOutputPath(outputDir, channelIDStr, quality)
+	outputPath := GetOutputPath(outputDir, quality)
 
 	// Create segment directories
 	if err := createSegmentDirectories(outputDir, channelIDStr); err != nil {
@@ -190,9 +212,11 @@ func (m *StreamManager) StartStream(ctx context.Context, channelID uuid.UUID) (*
 		OutputPath:      outputPath,
 		Quality:         quality,
 		HardwareAccel:   HardwareAccel(m.config.HardwareAccel),
-		SeekSeconds:     position.OffsetSeconds,
+		SeekSeconds:     offsetSeconds,
 		SegmentDuration: m.config.SegmentDuration,
 		PlaylistSize:    m.config.PlaylistSize,
+		RealtimePacing:  m.config.RealtimePacing,
+		EncodingPreset:  m.config.EncodingPreset,
 	}
 
 	ffmpegCmd, err := BuildHLSCommand(params)
@@ -229,6 +253,15 @@ func (m *StreamManager) StartStream(ctx context.Context, channelID uuid.UUID) (*
 	// Store session in manager
 	m.sessionManager.Set(channelIDStr, session)
 
+	// Generate and write master playlist
+	if err := m.generateMasterPlaylist(outputDir, qualities); err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelIDStr).
+			Msg("Failed to generate master playlist (continuing anyway)")
+		// Don't fail the stream start, just log the error
+	}
+
 	// Start monitoring FFmpeg process in background
 	go m.monitorFFmpegProcess(channelID, execCmd)
 
@@ -237,7 +270,7 @@ func (m *StreamManager) StartStream(ctx context.Context, channelID uuid.UUID) (*
 		Str("channel_name", channel.Name).
 		Int("ffmpeg_pid", execCmd.Process.Pid).
 		Str("quality", quality).
-		Int64("seek_seconds", position.OffsetSeconds).
+		Int64("seek_seconds", offsetSeconds).
 		Msg("Stream started successfully")
 
 	return session, nil
@@ -466,10 +499,23 @@ func (m *StreamManager) monitorFFmpegProcess(channelID uuid.UUID, cmd interface{
 		session.IncrementErrorCount()
 		session.SetLastError(err)
 
+		// Check if we have any active clients before attempting recovery
+		clientCount := session.GetClientCount()
+		if clientCount == 0 {
+			logger.Log.Info().
+				Str("channel_id", channelIDStr).
+				Msg("FFmpeg crashed with no active clients, cleaning up session")
+
+			// Clean up session
+			m.sessionManager.Delete(channelIDStr)
+			m.sessionManager.DeleteCircuitBreaker(channelIDStr)
+			return
+		}
+
 		// Classify the error
 		streamErr := ClassifyError(err)
 
-		// Attempt recovery
+		// Attempt recovery only if we have active clients
 		ctx := context.Background()
 		if recoveryErr := m.attemptRecovery(ctx, channelID, streamErr); recoveryErr != nil {
 			logger.Log.Error().
@@ -484,24 +530,129 @@ func (m *StreamManager) monitorFFmpegProcess(channelID uuid.UUID, cmd interface{
 			}
 		}
 	} else {
-		// Process exited cleanly but unexpectedly
-		logger.Log.Warn().
+		// Process exited cleanly - video finished playing
+		logger.Log.Info().
 			Str("channel_id", channelIDStr).
-			Msg("FFmpeg process exited cleanly but unexpectedly")
+			Msg("FFmpeg process completed video successfully")
 
-		// Treat as a crash and attempt restart
-		streamErr := NewStreamError(ErrorTypeFFmpegCrash, "FFmpeg exited unexpectedly", nil)
+		// Check if we have any active clients
+		clientCount := session.GetClientCount()
+		if clientCount == 0 {
+			logger.Log.Info().
+				Str("channel_id", channelIDStr).
+				Msg("No active clients, cleaning up stream")
+
+			// Clean up session
+			m.sessionManager.Delete(channelIDStr)
+			m.sessionManager.DeleteCircuitBreaker(channelIDStr)
+			return
+		}
+
+		// Advance to next video in playlist for active clients
+		logger.Log.Info().
+			Str("channel_id", channelIDStr).
+			Int("client_count", clientCount).
+			Msg("Video finished, advancing to next video")
 
 		ctx := context.Background()
-		if recoveryErr := m.attemptRecovery(ctx, channelID, streamErr); recoveryErr != nil {
+		if err := m.advanceToNextVideo(ctx, channelID); err != nil {
 			logger.Log.Error().
-				Err(recoveryErr).
+				Err(err).
 				Str("channel_id", channelIDStr).
-				Msg("Failed to restart stream after unexpected exit")
+				Msg("Failed to advance to next video")
 
 			if session, ok := m.sessionManager.Get(channelIDStr); ok {
 				session.SetState(StateFailed.String())
 			}
 		}
 	}
+}
+
+// generateMasterPlaylist generates the HLS master playlist file for a stream
+func (m *StreamManager) generateMasterPlaylist(outputDir string, qualities []models.StreamQuality) error {
+	// Convert StreamQuality to PlaylistVariant
+	variants := make([]PlaylistVariant, 0, len(qualities))
+	for _, q := range qualities {
+		bandwidth, err := GetBandwidthForQuality(q.Level)
+		if err != nil {
+			return fmt.Errorf("failed to get bandwidth for quality %s: %w", q.Level, err)
+		}
+
+		resolution, err := GetResolutionForQuality(q.Level)
+		if err != nil {
+			return fmt.Errorf("failed to get resolution for quality %s: %w", q.Level, err)
+		}
+
+		variants = append(variants, PlaylistVariant{
+			Bandwidth:  bandwidth,
+			Resolution: resolution,
+			Path:       fmt.Sprintf("%s.m3u8", q.Level),
+		})
+	}
+
+	// Generate master playlist content
+	content, err := GenerateMasterPlaylist(variants)
+	if err != nil {
+		return fmt.Errorf("failed to generate master playlist: %w", err)
+	}
+
+	// Write to file
+	masterPlaylistPath := filepath.Join(outputDir, "master.m3u8")
+	if err := WritePlaylistAtomic(masterPlaylistPath, content); err != nil {
+		return fmt.Errorf("failed to write master playlist: %w", err)
+	}
+
+	logger.Log.Debug().
+		Str("path", masterPlaylistPath).
+		Int("variants", len(variants)).
+		Msg("Master playlist generated")
+
+	return nil
+}
+
+// advanceToNextVideo stops the current stream and starts the next video in the playlist
+func (m *StreamManager) advanceToNextVideo(ctx context.Context, channelID uuid.UUID) error {
+	channelIDStr := channelID.String()
+
+	// Get current session to preserve client count
+	session, ok := m.sessionManager.Get(channelIDStr)
+	if !ok {
+		return fmt.Errorf("session not found for channel %s", channelIDStr)
+	}
+
+	clientCount := session.GetClientCount()
+
+	logger.Log.Debug().
+		Str("channel_id", channelIDStr).
+		Int("client_count", clientCount).
+		Msg("Advancing to next video in playlist")
+
+	// Stop current stream (cleans up FFmpeg process and files)
+	if err := m.StopStream(ctx, channelID); err != nil {
+		logger.Log.Warn().
+			Err(err).
+			Str("channel_id", channelIDStr).
+			Msg("Error stopping stream before advancing (continuing anyway)")
+	}
+
+	// Start new stream (timeline service will calculate current position)
+	// This automatically handles looping back to first video if at end
+	newSession, err := m.StartStream(ctx, channelID)
+	if err != nil {
+		return fmt.Errorf("failed to start next video: %w", err)
+	}
+
+	// Restore client count from previous session
+	// (StartStream creates session with 0 clients)
+	for i := 0; i < clientCount; i++ {
+		newSession.IncrementClients()
+	}
+	newSession.UpdateLastAccess()
+
+	logger.Log.Info().
+		Str("channel_id", channelIDStr).
+		Int("client_count", clientCount).
+		Msg("Successfully advanced to next video")
+
+	return nil
 }

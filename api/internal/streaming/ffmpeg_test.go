@@ -338,9 +338,14 @@ func TestBuildHLSCommand_HLSParameters(t *testing.T) {
 		t.Error("Expected hls_flags delete_segments")
 	}
 
-	// Verify HLS playlist type
-	if !containsConsecutiveArgs(cmd.Args, "-hls_playlist_type", "event") {
-		t.Error("Expected hls_playlist_type event")
+	// Verify stream looping for 24/7 channel behavior
+	if !containsConsecutiveArgs(cmd.Args, "-stream_loop", "-1") {
+		t.Error("Expected stream_loop -1 for infinite looping")
+	}
+
+	// Verify no hls_playlist_type (allows sliding window)
+	if containsArg(cmd.Args, "-hls_playlist_type") {
+		t.Error("Should not have hls_playlist_type for sliding window behavior")
 	}
 
 	// Verify segment filename pattern exists
@@ -554,31 +559,28 @@ func TestBuildHLSCommand_InvalidPlaylistSize(t *testing.T) {
 // TestGetOutputPath tests output path generation
 func TestGetOutputPath(t *testing.T) {
 	tests := []struct {
-		name      string
-		baseDir   string
-		channelID string
-		quality   string
-		expected  string
+		name     string
+		baseDir  string
+		quality  string
+		expected string
 	}{
 		{
-			name:      "basic path",
-			baseDir:   "/streams",
-			channelID: "channel1",
-			quality:   "1080p",
-			expected:  "/streams/channel1/1080p.m3u8",
+			name:     "basic path",
+			baseDir:  "/streams",
+			quality:  "1080p",
+			expected: "/streams/1080p/1080p.m3u8",
 		},
 		{
-			name:      "with trailing slash",
-			baseDir:   "/streams/",
-			channelID: "channel1",
-			quality:   "720p",
-			expected:  "/streams/channel1/720p.m3u8",
+			name:     "with trailing slash",
+			baseDir:  "/streams/",
+			quality:  "720p",
+			expected: "/streams/720p/720p.m3u8",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := GetOutputPath(tt.baseDir, tt.channelID, tt.quality)
+			result := GetOutputPath(tt.baseDir, tt.quality)
 			if result != tt.expected {
 				t.Errorf("Expected %s, got %s", tt.expected, result)
 			}
