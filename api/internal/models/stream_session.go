@@ -24,24 +24,47 @@ type StreamQuality struct {
 	PlaylistPath string `json:"playlist_path"` // Path to .m3u8 playlist file
 }
 
+// BatchState tracks the state of a batch segment generation
+type BatchState struct {
+	BatchNumber       int       `json:"batch_number"`       // Current batch number (0, 1, 2, ...)
+	StartSegment      int       `json:"start_segment"`      // First segment number in batch
+	EndSegment        int       `json:"end_segment"`        // Last segment number in batch
+	VideoSourcePath   string    `json:"video_source_path"`  // Media file being encoded
+	VideoStartOffset  int64     `json:"video_start_offset"` // Starting position in source video (seconds)
+	GenerationStarted time.Time `json:"generation_started"` // When batch generation began
+	GenerationEnded   time.Time `json:"generation_ended"`   // When batch generation completed (zero value = not complete)
+	IsComplete        bool      `json:"is_complete"`        // Whether batch finished generating
+}
+
+// ClientPosition tracks the playback position of a single client
+type ClientPosition struct {
+	SessionID     string    `json:"session_id"`     // Client session identifier
+	SegmentNumber int       `json:"segment_number"` // Current segment being played
+	Quality       string    `json:"quality"`        // Quality level (1080p, 720p, 480p)
+	LastUpdated   time.Time `json:"last_updated"`   // When position was last updated
+}
+
 // StreamSession represents an active streaming session
 // This is NOT persisted to database, only kept in memory
 type StreamSession struct {
-	ID                  uuid.UUID       `json:"id"`
-	ChannelID           uuid.UUID       `json:"channel_id"`
-	StartedAt           time.Time       `json:"started_at"`
-	ClientCount         int             `json:"client_count"`
-	FFmpegPID           int             `json:"ffmpeg_pid"`
-	State               string          `json:"state"`                 // Current stream state (stored as string to avoid import cycle)
-	Qualities           []StreamQuality `json:"qualities"`             // Quality variants being generated
-	LastAccessTime      time.Time       `json:"last_access_time"`      // When last client interacted
-	ErrorCount          int             `json:"error_count"`           // Number of errors encountered
-	LastError           string          `json:"last_error"`            // Most recent error message
-	SegmentPath         string          `json:"segment_path"`          // Directory where segments are stored
-	OutputDir           string          `json:"output_dir"`            // Base directory for stream output
-	RestartCount        int             `json:"restart_count"`         // Number of restart attempts
-	HardwareAccelFailed bool            `json:"hardware_accel_failed"` // Whether hardware acceleration has failed
-	RegisteredSessions  map[string]bool `json:"registered_sessions"`   // Track unique client sessions for idempotent registration
+	ID                  uuid.UUID                  `json:"id"`
+	ChannelID           uuid.UUID                  `json:"channel_id"`
+	StartedAt           time.Time                  `json:"started_at"`
+	ClientCount         int                        `json:"client_count"`
+	FFmpegPID           int                        `json:"ffmpeg_pid"`
+	State               string                     `json:"state"`                 // Current stream state (stored as string to avoid import cycle)
+	Qualities           []StreamQuality            `json:"qualities"`             // Quality variants being generated
+	LastAccessTime      time.Time                  `json:"last_access_time"`      // When last client interacted
+	ErrorCount          int                        `json:"error_count"`           // Number of errors encountered
+	LastError           string                     `json:"last_error"`            // Most recent error message
+	SegmentPath         string                     `json:"segment_path"`          // Directory where segments are stored
+	OutputDir           string                     `json:"output_dir"`            // Base directory for stream output
+	RestartCount        int                        `json:"restart_count"`         // Number of restart attempts
+	HardwareAccelFailed bool                       `json:"hardware_accel_failed"` // Whether hardware acceleration has failed
+	RegisteredSessions  map[string]bool            `json:"registered_sessions"`   // Track unique client sessions for idempotent registration
+	CurrentBatch        *BatchState                `json:"current_batch"`         // Current batch state (nil = no batch)
+	ClientPositions     map[string]*ClientPosition `json:"client_positions"`      // Per-session client positions (key: session_id)
+	FurthestSegment     int                        `json:"furthest_segment"`      // Furthest segment any client has reached
 	mu                  sync.RWMutex
 }
 
@@ -64,6 +87,9 @@ func NewStreamSession(channelID uuid.UUID) *StreamSession {
 		RestartCount:        0,
 		HardwareAccelFailed: false,
 		RegisteredSessions:  make(map[string]bool),
+		CurrentBatch:        nil,
+		ClientPositions:     make(map[string]*ClientPosition),
+		FurthestSegment:     0,
 	}
 }
 
@@ -303,4 +329,58 @@ func (s *StreamSession) UnregisterSession(sessionID string) bool {
 	// Remove session
 	delete(s.RegisteredSessions, sessionID)
 	return true
+}
+
+// UpdateClientPosition updates or creates a client position entry and updates FurthestSegment (thread-safe)
+func (s *StreamSession) UpdateClientPosition(sessionID string, segment int, quality string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.ClientPositions[sessionID] = &ClientPosition{
+		SessionID:     sessionID,
+		SegmentNumber: segment,
+		Quality:       quality,
+		LastUpdated:   time.Now().UTC(),
+	}
+
+	// Track furthest position across all clients
+	if segment > s.FurthestSegment {
+		s.FurthestSegment = segment
+	}
+}
+
+// GetFurthestPosition returns the furthest segment any client has reached (thread-safe)
+func (s *StreamSession) GetFurthestPosition() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.FurthestSegment
+}
+
+// ShouldGenerateNextBatch returns true if the next batch should be generated (thread-safe)
+// Returns false if no batch exists, batch is not complete, or segments remaining > threshold
+func (s *StreamSession) ShouldGenerateNextBatch(threshold int) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.CurrentBatch == nil || !s.CurrentBatch.IsComplete {
+		return false // Wait for current batch to finish
+	}
+
+	segmentsRemaining := s.CurrentBatch.EndSegment - s.FurthestSegment
+	return segmentsRemaining <= threshold
+}
+
+// SetCurrentBatch sets the current batch state (thread-safe)
+func (s *StreamSession) SetCurrentBatch(batch *BatchState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.CurrentBatch = batch
+}
+
+// GetCurrentBatch returns the current batch state (thread-safe)
+// May return nil if no batch is set
+func (s *StreamSession) GetCurrentBatch() *BatchState {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.CurrentBatch
 }
