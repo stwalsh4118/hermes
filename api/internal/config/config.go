@@ -29,6 +29,8 @@ const (
 	defaultStreamingGracePeriod      = 30
 	defaultStreamingCleanupInterval  = 60
 	defaultStreamingEncodingPreset   = "ultrafast"
+	defaultStreamingBatchSize        = 20
+	defaultStreamingTriggerThreshold = 5
 	envPrefix                        = "HERMES"
 )
 
@@ -78,6 +80,8 @@ type StreamingConfig struct {
 	CleanupInterval    int    // How often to cleanup old segments in seconds
 	RealtimePacing     bool   // Enable -re flag for 1x speed encoding (true = real-time, false = fast encoding)
 	EncodingPreset     string // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
+	BatchSize          int    // Number of segments per batch (default: 20)
+	TriggerThreshold   int    // Generate next batch when N segments remain (default: 5)
 }
 
 // Load reads configuration from .env file, config files, environment variables, and defaults
@@ -155,6 +159,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("streaming.cleanupinterval", defaultStreamingCleanupInterval)
 	v.SetDefault("streaming.realtimepacing", true)
 	v.SetDefault("streaming.encodingpreset", defaultStreamingEncodingPreset)
+	v.SetDefault("streaming.batchsize", defaultStreamingBatchSize)
+	v.SetDefault("streaming.triggerthreshold", defaultStreamingTriggerThreshold)
 }
 
 // Validate checks that configuration values are valid
@@ -211,6 +217,19 @@ func (c *Config) Validate() error {
 	validPresets := []string{"ultrafast", "veryfast", "fast", "medium", "slow"}
 	if !contains(validPresets, c.Streaming.EncodingPreset) {
 		return fmt.Errorf("invalid encoding preset: %s (must be one of: %s)", c.Streaming.EncodingPreset, strings.Join(validPresets, ", "))
+	}
+
+	// Validate batch configuration
+	if c.Streaming.BatchSize <= 0 {
+		return fmt.Errorf("batch size must be positive, got %d", c.Streaming.BatchSize)
+	}
+
+	if c.Streaming.TriggerThreshold <= 0 {
+		return fmt.Errorf("trigger threshold must be positive, got %d", c.Streaming.TriggerThreshold)
+	}
+
+	if c.Streaming.TriggerThreshold >= c.Streaming.BatchSize {
+		return fmt.Errorf("trigger threshold (%d) must be less than batch size (%d)", c.Streaming.TriggerThreshold, c.Streaming.BatchSize)
 	}
 
 	// Database path validation will be done when opening DB

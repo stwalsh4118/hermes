@@ -64,6 +64,12 @@ func TestConfigDefaults(t *testing.T) {
 	if cfg.Streaming.CleanupInterval != defaultStreamingCleanupInterval {
 		t.Errorf("Streaming.CleanupInterval = %d, want %d", cfg.Streaming.CleanupInterval, defaultStreamingCleanupInterval)
 	}
+	if cfg.Streaming.BatchSize != defaultStreamingBatchSize {
+		t.Errorf("Streaming.BatchSize = %d, want %d", cfg.Streaming.BatchSize, defaultStreamingBatchSize)
+	}
+	if cfg.Streaming.TriggerThreshold != defaultStreamingTriggerThreshold {
+		t.Errorf("Streaming.TriggerThreshold = %d, want %d", cfg.Streaming.TriggerThreshold, defaultStreamingTriggerThreshold)
+	}
 }
 
 func TestConfigValidation(t *testing.T) {
@@ -98,6 +104,8 @@ func TestConfigValidation(t *testing.T) {
 					GracePeriodSeconds: 30,
 					CleanupInterval:    60,
 					EncodingPreset:     "ultrafast",
+					BatchSize:          20,
+					TriggerThreshold:   5,
 				},
 			},
 			wantErr: false,
@@ -126,6 +134,8 @@ func TestConfigValidation(t *testing.T) {
 					GracePeriodSeconds: 30,
 					CleanupInterval:    60,
 					EncodingPreset:     "ultrafast",
+					BatchSize:          20,
+					TriggerThreshold:   5,
 				},
 			},
 			wantErr: true,
@@ -154,6 +164,8 @@ func TestConfigValidation(t *testing.T) {
 					GracePeriodSeconds: 30,
 					CleanupInterval:    60,
 					EncodingPreset:     "ultrafast",
+					BatchSize:          20,
+					TriggerThreshold:   5,
 				},
 			},
 			wantErr: true,
@@ -181,6 +193,9 @@ func TestConfigValidation(t *testing.T) {
 					SegmentPath:        "./data/streams",
 					GracePeriodSeconds: 30,
 					CleanupInterval:    60,
+					EncodingPreset:     "ultrafast",
+					BatchSize:          20,
+					TriggerThreshold:   5,
 				},
 			},
 			wantErr: true,
@@ -208,6 +223,9 @@ func TestConfigValidation(t *testing.T) {
 					SegmentPath:        "./data/streams",
 					GracePeriodSeconds: 30,
 					CleanupInterval:    60,
+					EncodingPreset:     "ultrafast",
+					BatchSize:          20,
+					TriggerThreshold:   5,
 				},
 			},
 			wantErr: true,
@@ -235,6 +253,9 @@ func TestConfigValidation(t *testing.T) {
 					SegmentPath:        "./data/streams",
 					GracePeriodSeconds: 30,
 					CleanupInterval:    60,
+					EncodingPreset:     "ultrafast",
+					BatchSize:          20,
+					TriggerThreshold:   5,
 				},
 			},
 			wantErr: true,
@@ -262,6 +283,9 @@ func TestConfigValidation(t *testing.T) {
 					SegmentPath:        "",
 					GracePeriodSeconds: 30,
 					CleanupInterval:    60,
+					EncodingPreset:     "ultrafast",
+					BatchSize:          20,
+					TriggerThreshold:   5,
 				},
 			},
 			wantErr: true,
@@ -289,6 +313,9 @@ func TestConfigValidation(t *testing.T) {
 					SegmentPath:        "./data/streams",
 					GracePeriodSeconds: 30,
 					CleanupInterval:    0,
+					EncodingPreset:     "ultrafast",
+					BatchSize:          20,
+					TriggerThreshold:   5,
 				},
 			},
 			wantErr: true,
@@ -317,6 +344,8 @@ func TestConfigValidation(t *testing.T) {
 					GracePeriodSeconds: 30,
 					CleanupInterval:    60,
 					EncodingPreset:     "ultrafast",
+					BatchSize:          20,
+					TriggerThreshold:   5,
 				},
 			},
 			wantErr: false,
@@ -345,6 +374,188 @@ func TestConfigValidation(t *testing.T) {
 					GracePeriodSeconds: 0,
 					CleanupInterval:    60,
 					EncodingPreset:     "ultrafast",
+					BatchSize:          20,
+					TriggerThreshold:   5,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid batch size (zero)",
+			config: Config{
+				Server: ServerConfig{
+					Port:         8080,
+					Host:         "0.0.0.0",
+					ReadTimeout:  defaultReadTimeout,
+					WriteTimeout: defaultWriteTimeout,
+				},
+				Database: DatabaseConfig{
+					Path:              "./data/hermes.db",
+					ConnectionTimeout: defaultDatabaseConnectionTimeout,
+				},
+				Logging: LoggingConfig{
+					Level: "info",
+				},
+				Streaming: StreamingConfig{
+					HardwareAccel:      "auto",
+					SegmentDuration:    6,
+					PlaylistSize:       10,
+					SegmentPath:        "./data/streams",
+					GracePeriodSeconds: 30,
+					CleanupInterval:    60,
+					EncodingPreset:     "ultrafast",
+					BatchSize:          0,
+					TriggerThreshold:   5,
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid batch size (negative)",
+			config: Config{
+				Server: ServerConfig{
+					Port:         8080,
+					Host:         "0.0.0.0",
+					ReadTimeout:  defaultReadTimeout,
+					WriteTimeout: defaultWriteTimeout,
+				},
+				Database: DatabaseConfig{
+					Path:              "./data/hermes.db",
+					ConnectionTimeout: defaultDatabaseConnectionTimeout,
+				},
+				Logging: LoggingConfig{
+					Level: "info",
+				},
+				Streaming: StreamingConfig{
+					HardwareAccel:      "auto",
+					SegmentDuration:    6,
+					PlaylistSize:       10,
+					SegmentPath:        "./data/streams",
+					GracePeriodSeconds: 30,
+					CleanupInterval:    60,
+					EncodingPreset:     "ultrafast",
+					BatchSize:          -1,
+					TriggerThreshold:   5,
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid trigger threshold (zero)",
+			config: Config{
+				Server: ServerConfig{
+					Port:         8080,
+					Host:         "0.0.0.0",
+					ReadTimeout:  defaultReadTimeout,
+					WriteTimeout: defaultWriteTimeout,
+				},
+				Database: DatabaseConfig{
+					Path:              "./data/hermes.db",
+					ConnectionTimeout: defaultDatabaseConnectionTimeout,
+				},
+				Logging: LoggingConfig{
+					Level: "info",
+				},
+				Streaming: StreamingConfig{
+					HardwareAccel:      "auto",
+					SegmentDuration:    6,
+					PlaylistSize:       10,
+					SegmentPath:        "./data/streams",
+					GracePeriodSeconds: 30,
+					CleanupInterval:    60,
+					EncodingPreset:     "ultrafast",
+					BatchSize:          20,
+					TriggerThreshold:   0,
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid trigger threshold (negative)",
+			config: Config{
+				Server: ServerConfig{
+					Port:         8080,
+					Host:         "0.0.0.0",
+					ReadTimeout:  defaultReadTimeout,
+					WriteTimeout: defaultWriteTimeout,
+				},
+				Database: DatabaseConfig{
+					Path:              "./data/hermes.db",
+					ConnectionTimeout: defaultDatabaseConnectionTimeout,
+				},
+				Logging: LoggingConfig{
+					Level: "info",
+				},
+				Streaming: StreamingConfig{
+					HardwareAccel:      "auto",
+					SegmentDuration:    6,
+					PlaylistSize:       10,
+					SegmentPath:        "./data/streams",
+					GracePeriodSeconds: 30,
+					CleanupInterval:    60,
+					EncodingPreset:     "ultrafast",
+					BatchSize:          20,
+					TriggerThreshold:   -1,
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid trigger threshold (greater than or equal to batch size)",
+			config: Config{
+				Server: ServerConfig{
+					Port:         8080,
+					Host:         "0.0.0.0",
+					ReadTimeout:  defaultReadTimeout,
+					WriteTimeout: defaultWriteTimeout,
+				},
+				Database: DatabaseConfig{
+					Path:              "./data/hermes.db",
+					ConnectionTimeout: defaultDatabaseConnectionTimeout,
+				},
+				Logging: LoggingConfig{
+					Level: "info",
+				},
+				Streaming: StreamingConfig{
+					HardwareAccel:      "auto",
+					SegmentDuration:    6,
+					PlaylistSize:       10,
+					SegmentPath:        "./data/streams",
+					GracePeriodSeconds: 30,
+					CleanupInterval:    60,
+					EncodingPreset:     "ultrafast",
+					BatchSize:          20,
+					TriggerThreshold:   20,
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid batch configuration",
+			config: Config{
+				Server: ServerConfig{
+					Port:         8080,
+					Host:         "0.0.0.0",
+					ReadTimeout:  defaultReadTimeout,
+					WriteTimeout: defaultWriteTimeout,
+				},
+				Database: DatabaseConfig{
+					Path:              "./data/hermes.db",
+					ConnectionTimeout: defaultDatabaseConnectionTimeout,
+				},
+				Logging: LoggingConfig{
+					Level: "info",
+				},
+				Streaming: StreamingConfig{
+					HardwareAccel:      "auto",
+					SegmentDuration:    6,
+					PlaylistSize:       10,
+					SegmentPath:        "./data/streams",
+					GracePeriodSeconds: 30,
+					CleanupInterval:    60,
+					EncodingPreset:     "ultrafast",
+					BatchSize:          30,
+					TriggerThreshold:   10,
 				},
 			},
 			wantErr: false,
@@ -369,6 +580,8 @@ func TestStreamingConfigEnvVars(t *testing.T) {
 	_ = os.Setenv("HERMES_STREAMING_SEGMENTPATH", "/custom/path")
 	_ = os.Setenv("HERMES_STREAMING_GRACEPERIODSECONDS", "45")
 	_ = os.Setenv("HERMES_STREAMING_CLEANUPINTERVAL", "90")
+	_ = os.Setenv("HERMES_STREAMING_BATCHSIZE", "25")
+	_ = os.Setenv("HERMES_STREAMING_TRIGGERTHRESHOLD", "8")
 	defer func() {
 		_ = os.Unsetenv("HERMES_STREAMING_HARDWAREACCEL")
 		_ = os.Unsetenv("HERMES_STREAMING_SEGMENTDURATION")
@@ -376,6 +589,8 @@ func TestStreamingConfigEnvVars(t *testing.T) {
 		_ = os.Unsetenv("HERMES_STREAMING_SEGMENTPATH")
 		_ = os.Unsetenv("HERMES_STREAMING_GRACEPERIODSECONDS")
 		_ = os.Unsetenv("HERMES_STREAMING_CLEANUPINTERVAL")
+		_ = os.Unsetenv("HERMES_STREAMING_BATCHSIZE")
+		_ = os.Unsetenv("HERMES_STREAMING_TRIGGERTHRESHOLD")
 	}()
 
 	cfg, err := Load()
@@ -400,6 +615,12 @@ func TestStreamingConfigEnvVars(t *testing.T) {
 	}
 	if cfg.Streaming.CleanupInterval != 90 {
 		t.Errorf("Streaming.CleanupInterval = %d, want 90", cfg.Streaming.CleanupInterval)
+	}
+	if cfg.Streaming.BatchSize != 25 {
+		t.Errorf("Streaming.BatchSize = %d, want 25", cfg.Streaming.BatchSize)
+	}
+	if cfg.Streaming.TriggerThreshold != 8 {
+		t.Errorf("Streaming.TriggerThreshold = %d, want 8", cfg.Streaming.TriggerThreshold)
 	}
 }
 
