@@ -544,7 +544,7 @@ func TestUnregisterClient_NotFound(t *testing.T) {
 func TestUpdatePosition_Success(t *testing.T) {
 	channelID := uuid.New()
 	session := models.NewStreamSession(channelID)
-	
+
 	// Set up a batch state for testing
 	batch := &models.BatchState{
 		BatchNumber:  2,
@@ -553,7 +553,7 @@ func TestUpdatePosition_Success(t *testing.T) {
 		IsComplete:   true,
 	}
 	session.SetCurrentBatch(batch)
-	
+
 	// Set initial furthest segment
 	session.UpdateClientPosition("existing-session", 25, "1080p")
 
@@ -587,7 +587,7 @@ func TestUpdatePosition_Success(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
 	assert.Equal(t, true, response["acknowledged"])
-	assert.Equal(t, float64(2), response["current_batch"]) // JSON numbers are float64
+	assert.Equal(t, float64(2), response["current_batch"])      // JSON numbers are float64
 	assert.Equal(t, float64(9), response["segments_remaining"]) // 39 - 30 = 9
 
 	// Verify position was updated
@@ -826,7 +826,7 @@ func TestUpdatePosition_InvalidQuality(t *testing.T) {
 func TestUpdatePosition_SegmentsRemaining_ClientAhead(t *testing.T) {
 	channelID := uuid.New()
 	session := models.NewStreamSession(channelID)
-	
+
 	// Set up a batch state
 	batch := &models.BatchState{
 		BatchNumber:  1,
@@ -835,7 +835,7 @@ func TestUpdatePosition_SegmentsRemaining_ClientAhead(t *testing.T) {
 		IsComplete:   true,
 	}
 	session.SetCurrentBatch(batch)
-	
+
 	// Client is ahead of batch end (edge case)
 	session.UpdateClientPosition("test-session", 25, "1080p")
 
