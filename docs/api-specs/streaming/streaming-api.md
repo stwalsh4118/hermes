@@ -883,23 +883,75 @@ Location: `internal/models/stream_session.go`
 
 ```go
 type StreamSession struct {
-    ID             uuid.UUID       `json:"id"`
-    ChannelID      uuid.UUID       `json:"channel_id"`
-    StartedAt      time.Time       `json:"started_at"`
-    ClientCount    int             `json:"client_count"`
-    FFmpegPID      int             `json:"ffmpeg_pid"`
-    State          string          `json:"state"`
-    Qualities      []StreamQuality `json:"qualities"`
-    LastAccessTime time.Time       `json:"last_access_time"`
-    ErrorCount     int             `json:"error_count"`
-    LastError      string          `json:"last_error"`
-    SegmentPath    string          `json:"segment_path"`
-    OutputDir      string          `json:"output_dir"`
-    mu             sync.RWMutex
+    ID                  uuid.UUID                `json:"id"`
+    ChannelID           uuid.UUID                `json:"channel_id"`
+    StartedAt           time.Time                 `json:"started_at"`
+    ClientCount         int                       `json:"client_count"`
+    FFmpegPID           int                       `json:"ffmpeg_pid"`
+    State               string                    `json:"state"`
+    Qualities           []StreamQuality           `json:"qualities"`
+    LastAccessTime      time.Time                 `json:"last_access_time"`
+    ErrorCount          int                       `json:"error_count"`
+    LastError           string                    `json:"last_error"`
+    SegmentPath         string                    `json:"segment_path"`
+    OutputDir           string                    `json:"output_dir"`
+    RestartCount        int                       `json:"restart_count"`
+    HardwareAccelFailed bool                      `json:"hardware_accel_failed"`
+    RegisteredSessions  map[string]bool           `json:"registered_sessions"`
+    CurrentBatch         *BatchState               `json:"current_batch"`
+    ClientPositions      map[string]*ClientPosition `json:"client_positions"`
+    FurthestSegment      int                       `json:"furthest_segment"`
+    mu                   sync.RWMutex
 }
 
 func NewStreamSession(channelID uuid.UUID) *StreamSession
 ```
+
+### BatchState Struct
+
+Tracks the state of a batch segment generation for just-in-time segment generation.
+
+```go
+type BatchState struct {
+    BatchNumber       int       `json:"batch_number"`       // Current batch number (0, 1, 2, ...)
+    StartSegment      int       `json:"start_segment"`      // First segment number in batch
+    EndSegment        int       `json:"end_segment"`        // Last segment number in batch
+    VideoSourcePath   string    `json:"video_source_path"`  // Media file being encoded
+    VideoStartOffset  int64     `json:"video_start_offset"` // Starting position in source video (seconds)
+    GenerationStarted time.Time `json:"generation_started"`  // When batch generation began
+    GenerationEnded   time.Time `json:"generation_ended"`   // When batch generation completed (zero value = not complete)
+    IsComplete        bool      `json:"is_complete"`         // Whether batch finished generating
+}
+```
+
+**Fields:**
+- `BatchNumber`: Sequential batch identifier, starting at 0 for the first batch
+- `StartSegment`: First segment number included in this batch (inclusive)
+- `EndSegment`: Last segment number included in this batch (inclusive)
+- `VideoSourcePath`: Path to the media file being encoded for this batch
+- `VideoStartOffset`: Starting position in the source video in seconds (for FFmpeg `-ss` flag)
+- `GenerationStarted`: Timestamp when batch generation began
+- `GenerationEnded`: Timestamp when batch generation completed (zero value indicates not yet complete)
+- `IsComplete`: Boolean flag indicating whether batch generation has finished
+
+### ClientPosition Struct
+
+Tracks the playback position of a single client session.
+
+```go
+type ClientPosition struct {
+    SessionID     string    `json:"session_id"`     // Client session identifier
+    SegmentNumber int       `json:"segment_number"` // Current segment being played
+    Quality       string    `json:"quality"`       // Quality level (1080p, 720p, 480p)
+    LastUpdated   time.Time `json:"last_updated"`  // When position was last updated
+}
+```
+
+**Fields:**
+- `SessionID`: Unique identifier for the client session (UUID string)
+- `SegmentNumber`: Current segment number the client is playing
+- `Quality`: Quality level being played (1080p, 720p, 480p)
+- `LastUpdated`: Timestamp when this position was last reported by the client
 
 ### Client Management Methods
 
@@ -972,6 +1024,61 @@ func (s *StreamSession) GetOutputDir() string
 func (s *StreamSession) SetOutputDir(dir string)
 ```
 
+### Batch State Management Methods
+
+```go
+func (s *StreamSession) SetCurrentBatch(batch *BatchState)
+func (s *StreamSession) GetCurrentBatch() *BatchState
+func (s *StreamSession) ShouldGenerateNextBatch(threshold int) bool
+```
+
+**SetCurrentBatch:**
+Sets the current batch state. Can be set to `nil` to clear the current batch.
+
+**GetCurrentBatch:**
+Returns the current batch state. Returns `nil` if no batch is set.
+
+**ShouldGenerateNextBatch:**
+Determines if the next batch should be generated based on client positions and threshold.
+
+**Parameters:**
+- `threshold`: Number of segments remaining before triggering next batch generation
+
+**Returns:**
+- `true` if next batch should be generated (current batch is complete AND segments remaining <= threshold)
+- `false` if no batch exists, batch is incomplete, or segments remaining > threshold
+
+**Logic:**
+1. Returns `false` if `CurrentBatch` is `nil` or `IsComplete` is `false`
+2. Calculates segments remaining: `CurrentBatch.EndSegment - FurthestSegment`
+3. Returns `true` if `segmentsRemaining <= threshold`
+
+### Client Position Tracking Methods
+
+```go
+func (s *StreamSession) UpdateClientPosition(sessionID string, segment int, quality string)
+func (s *StreamSession) GetFurthestPosition() int
+```
+
+**UpdateClientPosition:**
+Updates or creates a client position entry and automatically updates `FurthestSegment` if the new position is further than the current furthest.
+
+**Parameters:**
+- `sessionID`: Unique identifier for the client session
+- `segment`: Current segment number the client is playing
+- `quality`: Quality level being played (1080p, 720p, 480p)
+
+**Behavior:**
+- Creates or updates the `ClientPosition` entry in the `ClientPositions` map
+- Sets `LastUpdated` to current UTC time
+- Updates `FurthestSegment` if `segment > FurthestSegment`
+
+**GetFurthestPosition:**
+Returns the furthest segment number any client has reached across all client positions.
+
+**Returns:**
+- `int`: Furthest segment number (0 if no clients have reported positions)
+
 ### Usage Example
 
 ```go
@@ -1006,6 +1113,41 @@ session.UpdateLastAccess()
 gracePeriod := 30 * time.Second
 if session.ShouldCleanup(gracePeriod) {
     // Cleanup the stream
+}
+
+// Batch state tracking
+batch := &models.BatchState{
+    BatchNumber:      0,
+    StartSegment:     0,
+    EndSegment:       19,
+    VideoSourcePath:  "/media/video.mp4",
+    VideoStartOffset: 0,
+    GenerationStarted: time.Now().UTC(),
+    IsComplete:       false,
+}
+session.SetCurrentBatch(batch)
+
+// Update client positions
+session.UpdateClientPosition("client-session-123", 5, "1080p")
+session.UpdateClientPosition("client-session-456", 3, "720p")
+
+// Get furthest position
+furthest := session.GetFurthestPosition() // Returns 5
+
+// Check if next batch should be generated
+batch.IsComplete = true
+session.SetCurrentBatch(batch)
+threshold := 5 // Generate next batch when 5 segments remain
+if session.ShouldGenerateNextBatch(threshold) {
+    // Trigger next batch generation
+    // segmentsRemaining = 19 - 5 = 14, which is > 5, so returns false
+}
+
+// When client reaches segment 14
+session.UpdateClientPosition("client-session-123", 14, "1080p")
+if session.ShouldGenerateNextBatch(threshold) {
+    // segmentsRemaining = 19 - 14 = 5, which is <= 5, so returns true
+    // Generate next batch
 }
 ```
 
