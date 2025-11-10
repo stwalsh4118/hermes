@@ -7,6 +7,7 @@ import { useChannel } from "@/hooks/use-channels";
 import { LoadingSpinner } from "@/components/common/loading-spinner";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
+import { VideoPlayer } from "@/components/video";
 
 export default function ChannelPlayerPage({
   params,
@@ -72,18 +73,9 @@ export default function ChannelPlayerPage({
         </div>
       </div>
 
-      {/* Video Player Area - Placeholder for task 10-3 */}
-      <div className="bg-black/80 rounded-xl p-12 border-4 border-primary shadow-[8px_8px_0_rgba(0,0,0,0.6)] text-center">
-        <div className="aspect-video flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-muted-foreground font-mono text-lg mb-2">
-              Video player will be integrated in task 10-3
-            </p>
-            <p className="text-muted-foreground/60 text-sm">
-              Channel: {channel.name} • Loop: {channel.loop ? "Yes" : "No"}
-            </p>
-          </div>
-        </div>
+      {/* Video Player */}
+      <div className="rounded-xl overflow-hidden border-4 border-primary shadow-[8px_8px_0_rgba(0,0,0,0.6)]">
+        <VideoPlayer channelId={channel.id} autoplay={true} />
       </div>
     </RetroHeaderLayout>
   );
