@@ -20,6 +20,7 @@ import (
 
 // streamManager defines the interface required by StreamHandler for stream management
 type streamManager interface {
+	StartStream(ctx context.Context, channelID uuid.UUID) (*models.StreamSession, error)
 	RegisterClient(ctx context.Context, channelID uuid.UUID) (*models.StreamSession, error)
 	UnregisterClient(ctx context.Context, channelID uuid.UUID) error
 	GetStream(channelID uuid.UUID) (*models.StreamSession, bool)
@@ -30,6 +31,29 @@ var validQualities = map[string]bool{
 	"1080p": true,
 	"720p":  true,
 	"480p":  true,
+}
+
+// rewriteSegmentPaths modifies playlist content to include quality directory in segment paths
+// Converts "1080p_segment_000.ts" to "1080p/1080p_segment_000.ts"
+func rewriteSegmentPaths(content, quality string) string {
+	lines := strings.Split(content, "\n")
+	var result strings.Builder
+
+	for _, line := range lines {
+		// Check if line is a segment reference (ends with .ts or .vtt and doesn't start with #)
+		trimmedLine := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmedLine, "#") &&
+			(strings.HasSuffix(trimmedLine, ".ts") || strings.HasSuffix(trimmedLine, ".vtt")) &&
+			len(trimmedLine) > 0 {
+			// Prepend quality directory to segment filename
+			result.WriteString(quality + "/" + line)
+		} else {
+			result.WriteString(line)
+		}
+		result.WriteString("\n")
+	}
+
+	return result.String()
 }
 
 // StreamHandler handles streaming-related API requests
@@ -48,6 +72,7 @@ func NewStreamHandler(manager *streaming.StreamManager) *StreamHandler {
 // This endpoint serves the master playlist and registers the client with the stream
 func (h *StreamHandler) GetMasterPlaylist(c *gin.Context) {
 	channelIDStr := c.Param("channel_id")
+	sessionID := c.Query("session_id") // Get unique client session ID
 
 	// Validate UUID
 	channelID, err := uuid.Parse(channelIDStr)
@@ -59,44 +84,62 @@ func (h *StreamHandler) GetMasterPlaylist(c *gin.Context) {
 		return
 	}
 
+	// Validate session ID
+	if sessionID == "" {
+		logger.Log.Warn().
+			Str("channel_id", channelID.String()).
+			Msg("Master playlist request missing session_id")
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "missing_session_id",
+			Message: "Session ID is required",
+		})
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
 	logger.Log.Info().
 		Str("channel_id", channelID.String()).
+		Str("session_id", sessionID).
 		Str("client_ip", c.ClientIP()).
 		Msg("Client requesting master playlist")
 
-	// Register client (starts stream if not already active)
-	session, err := h.streamManager.RegisterClient(ctx, channelID)
-	if err != nil {
-		logger.Log.Error().
-			Err(err).
-			Str("channel_id", channelID.String()).
-			Msg("Failed to register client for stream")
+	// Start stream if not already active (but don't register client yet)
+	session, found := h.streamManager.GetStream(channelID)
+	if !found {
+		// Stream doesn't exist, start it
+		var err error
+		session, err = h.streamManager.StartStream(ctx, channelID)
+		if err != nil {
+			logger.Log.Error().
+				Err(err).
+				Str("channel_id", channelID.String()).
+				Msg("Failed to start stream")
 
-		// Map errors to appropriate HTTP status codes
-		if errors.Is(err, streaming.ErrStreamNotFound) {
-			c.JSON(http.StatusNotFound, ErrorResponse{
-				Error:   "channel_not_found",
-				Message: "Channel not found",
+			// Map errors to appropriate HTTP status codes
+			if errors.Is(err, streaming.ErrStreamNotFound) {
+				c.JSON(http.StatusNotFound, ErrorResponse{
+					Error:   "channel_not_found",
+					Message: "Channel not found",
+				})
+				return
+			}
+
+			if errors.Is(err, streaming.ErrManagerStopped) {
+				c.JSON(http.StatusServiceUnavailable, ErrorResponse{
+					Error:   "service_unavailable",
+					Message: "Streaming service is unavailable",
+				})
+				return
+			}
+
+			c.JSON(http.StatusInternalServerError, ErrorResponse{
+				Error:   "stream_failed",
+				Message: "Failed to start stream",
 			})
 			return
 		}
-
-		if errors.Is(err, streaming.ErrManagerStopped) {
-			c.JSON(http.StatusServiceUnavailable, ErrorResponse{
-				Error:   "service_unavailable",
-				Message: "Streaming service is unavailable",
-			})
-			return
-		}
-
-		c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error:   "stream_failed",
-			Message: "Failed to start stream",
-		})
-		return
 	}
 
 	// Get output directory from session
@@ -116,7 +159,7 @@ func (h *StreamHandler) GetMasterPlaylist(c *gin.Context) {
 	// Build path to master playlist
 	masterPlaylistPath := filepath.Join(outputDir, "master.m3u8")
 
-	// Check if file exists
+	// Check if file exists - return 503 if not ready yet (don't register client)
 	if _, err := os.Stat(masterPlaylistPath); os.IsNotExist(err) {
 		logger.Log.Warn().
 			Str("channel_id", channelID.String()).
@@ -146,6 +189,26 @@ func (h *StreamHandler) GetMasterPlaylist(c *gin.Context) {
 		return
 	}
 
+	// NOW register the client (only on successful playlist delivery)
+	// This prevents counting retries and failed attempts
+	// Use session ID to ensure idempotent registration
+	wasNew := session.RegisterSession(sessionID)
+	if wasNew {
+		session.IncrementClients()
+		logger.Log.Debug().
+			Str("channel_id", channelID.String()).
+			Str("session_id", sessionID).
+			Int("client_count", session.GetClientCount()).
+			Msg("New client session registered")
+	} else {
+		logger.Log.Debug().
+			Str("channel_id", channelID.String()).
+			Str("session_id", sessionID).
+			Int("client_count", session.GetClientCount()).
+			Msg("Existing client session reconnected")
+	}
+	session.UpdateLastAccess()
+
 	logger.Log.Debug().
 		Str("channel_id", channelID.String()).
 		Int("client_count", session.GetClientCount()).
@@ -153,7 +216,7 @@ func (h *StreamHandler) GetMasterPlaylist(c *gin.Context) {
 
 	// Set appropriate headers
 	c.Header("Content-Type", "application/vnd.apple.mpegurl")
-	c.Header("Cache-Control", "public, max-age=60") // Master playlist can be cached briefly
+	c.Header("Cache-Control", "no-cache") // Don't cache to ensure client registration on each page load
 
 	c.Data(http.StatusOK, "application/vnd.apple.mpegurl", content)
 }
@@ -197,8 +260,11 @@ func (h *StreamHandler) GetMediaPlaylist(c *gin.Context) {
 		return
 	}
 
-	// Update last access time
-	session.UpdateLastAccess()
+	// Update last access time only if there are active clients
+	// This prevents lingering HLS requests from keeping idle streams alive
+	if session.GetClientCount() > 0 {
+		session.UpdateLastAccess()
+	}
 
 	// Get output directory from session
 	outputDir := session.GetOutputDir()
@@ -250,6 +316,11 @@ func (h *StreamHandler) GetMediaPlaylist(c *gin.Context) {
 		return
 	}
 
+	// Rewrite segment paths to include quality directory
+	// FFmpeg generates segments as "1080p_segment_000.ts" but we need "1080p/1080p_segment_000.ts"
+	// to match our route structure /:channel_id/:quality/:segment
+	modifiedContent := rewriteSegmentPaths(string(content), quality)
+
 	logger.Log.Debug().
 		Str("channel_id", channelID.String()).
 		Str("quality", quality).
@@ -259,7 +330,7 @@ func (h *StreamHandler) GetMediaPlaylist(c *gin.Context) {
 	c.Header("Content-Type", "application/vnd.apple.mpegurl")
 	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
 
-	c.Data(http.StatusOK, "application/vnd.apple.mpegurl", content)
+	c.Data(http.StatusOK, "application/vnd.apple.mpegurl", []byte(modifiedContent))
 }
 
 // GetSegment handles GET /stream/:channel_id/:quality/:segment
@@ -321,8 +392,11 @@ func (h *StreamHandler) GetSegment(c *gin.Context) {
 		return
 	}
 
-	// Update last access time
-	session.UpdateLastAccess()
+	// Update last access time only if there are active clients
+	// This prevents lingering HLS requests from keeping idle streams alive
+	if session.GetClientCount() > 0 {
+		session.UpdateLastAccess()
+	}
 
 	// Get output directory from session
 	outputDir := session.GetOutputDir()
@@ -419,6 +493,7 @@ func (h *StreamHandler) GetSegment(c *gin.Context) {
 // This endpoint allows clients to explicitly unregister from a stream
 func (h *StreamHandler) UnregisterClient(c *gin.Context) {
 	channelIDStr := c.Param("channel_id")
+	sessionID := c.Query("session_id") // Get unique client session ID
 
 	// Validate UUID
 	channelID, err := uuid.Parse(channelIDStr)
@@ -430,16 +505,50 @@ func (h *StreamHandler) UnregisterClient(c *gin.Context) {
 		return
 	}
 
+	// Validate session ID
+	if sessionID == "" {
+		logger.Log.Warn().
+			Str("channel_id", channelID.String()).
+			Msg("Unregister request missing session_id")
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "missing_session_id",
+			Message: "Session ID is required",
+		})
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
 	logger.Log.Info().
 		Str("channel_id", channelID.String()).
+		Str("session_id", sessionID).
 		Str("client_ip", c.ClientIP()).
 		Msg("Client unregistering from stream")
 
-	// Unregister client
-	err = h.streamManager.UnregisterClient(ctx, channelID)
+	// Get stream session
+	session, found := h.streamManager.GetStream(channelID)
+	if !found {
+		c.JSON(http.StatusNotFound, ErrorResponse{
+			Error:   "stream_not_found",
+			Message: "Stream not found or already stopped",
+		})
+		return
+	}
+
+	// Unregister session
+	wasRegistered := session.UnregisterSession(sessionID)
+	if wasRegistered {
+		// Decrement client count
+		err = h.streamManager.UnregisterClient(ctx, channelID)
+	} else {
+		logger.Log.Debug().
+			Str("channel_id", channelID.String()).
+			Str("session_id", sessionID).
+			Msg("Session was not registered, skipping unregister")
+		// No error, just not registered
+		err = nil
+	}
 	if err != nil {
 		if errors.Is(err, streaming.ErrStreamNotFound) {
 			c.JSON(http.StatusNotFound, ErrorResponse{

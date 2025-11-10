@@ -41,6 +41,7 @@ type StreamSession struct {
 	OutputDir           string          `json:"output_dir"`            // Base directory for stream output
 	RestartCount        int             `json:"restart_count"`         // Number of restart attempts
 	HardwareAccelFailed bool            `json:"hardware_accel_failed"` // Whether hardware acceleration has failed
+	RegisteredSessions  map[string]bool `json:"registered_sessions"`   // Track unique client sessions for idempotent registration
 	mu                  sync.RWMutex
 }
 
@@ -62,6 +63,7 @@ func NewStreamSession(channelID uuid.UUID) *StreamSession {
 		OutputDir:           "",
 		RestartCount:        0,
 		HardwareAccelFailed: false,
+		RegisteredSessions:  make(map[string]bool),
 	}
 }
 
@@ -271,4 +273,34 @@ func (s *StreamSession) SetHardwareAccelFailed(failed bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.HardwareAccelFailed = failed
+}
+
+// RegisterSession registers a client session ID and returns true if it's a new session (thread-safe)
+func (s *StreamSession) RegisterSession(sessionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.RegisteredSessions[sessionID] {
+		// Session already registered
+		return false
+	}
+
+	// New session
+	s.RegisteredSessions[sessionID] = true
+	return true
+}
+
+// UnregisterSession unregisters a client session ID and returns true if it was registered (thread-safe)
+func (s *StreamSession) UnregisterSession(sessionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.RegisteredSessions[sessionID] {
+		// Session was not registered
+		return false
+	}
+
+	// Remove session
+	delete(s.RegisteredSessions, sessionID)
+	return true
 }

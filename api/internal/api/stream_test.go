@@ -20,9 +20,17 @@ import (
 
 // mockStreamManager is a test helper that implements streamManager interface
 type mockStreamManager struct {
+	startStreamFunc      func(ctx context.Context, channelID uuid.UUID) (*models.StreamSession, error)
 	registerClientFunc   func(ctx context.Context, channelID uuid.UUID) (*models.StreamSession, error)
 	unregisterClientFunc func(ctx context.Context, channelID uuid.UUID) error
 	getStreamFunc        func(channelID uuid.UUID) (*models.StreamSession, bool)
+}
+
+func (m *mockStreamManager) StartStream(ctx context.Context, channelID uuid.UUID) (*models.StreamSession, error) {
+	if m.startStreamFunc != nil {
+		return m.startStreamFunc(ctx, channelID)
+	}
+	return nil, nil
 }
 
 func (m *mockStreamManager) RegisterClient(ctx context.Context, channelID uuid.UUID) (*models.StreamSession, error) {
@@ -127,7 +135,11 @@ func TestGetMasterPlaylist_Success(t *testing.T) {
 
 	// Setup mock manager
 	mockManager := &mockStreamManager{
-		registerClientFunc: func(_ context.Context, id uuid.UUID) (*models.StreamSession, error) {
+		getStreamFunc: func(_ uuid.UUID) (*models.StreamSession, bool) {
+			// Return not found so it calls StartStream
+			return nil, false
+		},
+		startStreamFunc: func(_ context.Context, id uuid.UUID) (*models.StreamSession, error) {
 			if id == channelID {
 				return session, nil
 			}
@@ -137,15 +149,15 @@ func TestGetMasterPlaylist_Success(t *testing.T) {
 
 	router := setupStreamTestRouter(mockManager)
 
-	// Make request
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/stream/%s/master.m3u8", channelID.String()), nil)
+	// Make request with session_id
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/stream/%s/master.m3u8?session_id=test-session", channelID.String()), nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	// Assertions
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "application/vnd.apple.mpegurl", w.Header().Get("Content-Type"))
-	assert.Contains(t, w.Header().Get("Cache-Control"), "public")
+	assert.Contains(t, w.Header().Get("Cache-Control"), "no-cache")
 	assert.Contains(t, w.Body.String(), "#EXTM3U")
 	assert.Contains(t, w.Body.String(), "1080p.m3u8")
 }
@@ -170,14 +182,17 @@ func TestGetMasterPlaylist_ChannelNotFound(t *testing.T) {
 	channelID := uuid.New()
 
 	mockManager := &mockStreamManager{
-		registerClientFunc: func(_ context.Context, _ uuid.UUID) (*models.StreamSession, error) {
+		getStreamFunc: func(_ uuid.UUID) (*models.StreamSession, bool) {
+			return nil, false
+		},
+		startStreamFunc: func(_ context.Context, _ uuid.UUID) (*models.StreamSession, error) {
 			return nil, streaming.ErrStreamNotFound
 		},
 	}
 
 	router := setupStreamTestRouter(mockManager)
 
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/stream/%s/master.m3u8", channelID.String()), nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/stream/%s/master.m3u8?session_id=test-session", channelID.String()), nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -200,14 +215,17 @@ func TestGetMasterPlaylist_StreamStarting(t *testing.T) {
 	// Don't create master playlist file - simulating stream starting
 
 	mockManager := &mockStreamManager{
-		registerClientFunc: func(_ context.Context, _ uuid.UUID) (*models.StreamSession, error) {
+		getStreamFunc: func(_ uuid.UUID) (*models.StreamSession, bool) {
+			return nil, false
+		},
+		startStreamFunc: func(_ context.Context, _ uuid.UUID) (*models.StreamSession, error) {
 			return session, nil
 		},
 	}
 
 	router := setupStreamTestRouter(mockManager)
 
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/stream/%s/master.m3u8", channelID.String()), nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/stream/%s/master.m3u8?session_id=test-session", channelID.String()), nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -445,9 +463,19 @@ func TestGetSegment_NotFound(t *testing.T) {
 
 func TestUnregisterClient_Success(t *testing.T) {
 	channelID := uuid.New()
+	session := models.NewStreamSession(channelID)
+	// Register the session ID first
+	session.RegisterSession("test-session")
+	session.IncrementClients()
 	called := false
 
 	mockManager := &mockStreamManager{
+		getStreamFunc: func(id uuid.UUID) (*models.StreamSession, bool) {
+			if id == channelID {
+				return session, true
+			}
+			return nil, false
+		},
 		unregisterClientFunc: func(_ context.Context, id uuid.UUID) error {
 			if id == channelID {
 				called = true
@@ -459,7 +487,7 @@ func TestUnregisterClient_Success(t *testing.T) {
 
 	router := setupStreamTestRouter(mockManager)
 
-	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/stream/%s/client", channelID.String()), nil)
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/stream/%s/client?session_id=test-session", channelID.String()), nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -492,14 +520,14 @@ func TestUnregisterClient_NotFound(t *testing.T) {
 	channelID := uuid.New()
 
 	mockManager := &mockStreamManager{
-		unregisterClientFunc: func(_ context.Context, _ uuid.UUID) error {
-			return streaming.ErrStreamNotFound
+		getStreamFunc: func(_ uuid.UUID) (*models.StreamSession, bool) {
+			return nil, false
 		},
 	}
 
 	router := setupStreamTestRouter(mockManager)
 
-	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/stream/%s/client", channelID.String()), nil)
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/stream/%s/client?session_id=test-session", channelID.String()), nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
