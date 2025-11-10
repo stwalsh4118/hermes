@@ -1,6 +1,6 @@
 # Streaming Engine API
 
-Last Updated: 2025-10-30
+Last Updated: 2025-10-31
 
 ## Status
 
@@ -109,6 +109,27 @@ var (
 
 Location: `internal/streaming/ffmpeg.go`
 
+### 24/7 Channel Behavior
+
+The streaming system implements continuous 24/7 channel behavior:
+
+**Infinite Looping:**
+- Videos loop infinitely using `-stream_loop -1`
+- Provides continuous playback like a TV channel
+- Seeks are applied before looping starts
+
+**Sliding Window Playlist:**
+- Maintains only the most recent N segments (`hls_list_size`)
+- Old segments are automatically deleted (`hls_flags delete_segments`)
+- No `hls_playlist_type` specified (not "event" or "vod")
+- Creates a rolling window of content
+
+**Benefits:**
+- Constant disk usage (only 10 segments per quality)
+- Fast startup (clients see recent segments immediately)
+- Continuous playback experience
+- Automatic old segment cleanup
+
 ### Quality Constants
 
 ```go
@@ -130,6 +151,8 @@ type StreamParams struct {
     SeekSeconds     int64         // Starting position in seconds (0 = beginning)
     SegmentDuration int           // HLS segment duration in seconds
     PlaylistSize    int           // Number of segments to keep in playlist
+    RealtimePacing  bool          // Enable -re flag for 1x speed encoding
+    EncodingPreset  string        // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
 }
 ```
 
@@ -201,58 +224,80 @@ if err != nil {
 
 ### Hardware Encoder Mapping
 
+Encoding presets control the speed vs quality tradeoff. The `EncodingPreset` field in `StreamParams` accepts: `ultrafast`, `veryfast`, `fast`, `medium`, `slow`.
+
 **Software (none/auto):**
 ```
--c:v libx264 -preset veryfast
+-c:v libx264 -preset <preset>
 ```
+Example with ultrafast: `-c:v libx264 -preset ultrafast`
 
 **NVENC (NVIDIA):**
+NVENC uses p1-p7 preset scale. Software presets are automatically mapped:
+- ultrafast → p1 (fastest)
+- veryfast → p2
+- fast → p3
+- medium → p4
+- slow → p5
+
 ```
--c:v h264_nvenc -preset p1
+-c:v h264_nvenc -preset <mapped_preset>
 ```
+Example with ultrafast: `-c:v h264_nvenc -preset p1`
 
 **QSV (Intel):**
 ```
--c:v h264_qsv -preset veryfast
+-c:v h264_qsv -preset <preset>
 ```
+Example with ultrafast: `-c:v h264_qsv -preset ultrafast`
 
 **VAAPI (AMD/Intel Linux):**
 ```
 -c:v h264_vaapi
 ```
+Note: VAAPI doesn't support presets in the same way
 
 **VideoToolbox (macOS):**
 ```
 -c:v h264_videotoolbox
 ```
+Note: VideoToolbox doesn't support presets in the same way
 
 ### Example Commands
 
-**1080p Software Encoding:**
+**1080p Software Encoding with Ultrafast Preset (24/7 Channel):**
 ```
-ffmpeg -i /media/video.mp4 \
-  -c:v libx264 -preset veryfast \
+ffmpeg -re -stream_loop -1 -i /media/video.mp4 \
+  -c:v libx264 -preset ultrafast \
   -c:a aac -b:a 192k -ac 2 \
   -b:v 5000k -maxrate 5000k -bufsize 10000k -s 1920x1080 \
-  -f hls -hls_time 6 -hls_list_size 10 \
+  -f hls -hls_time 2 -hls_list_size 10 \
   -hls_flags delete_segments \
   -hls_segment_filename /streams/channel1/1080p_segment_%03d.ts \
-  -hls_playlist_type event \
   /streams/channel1/1080p.m3u8
 ```
+Note: 
+- `-re` enables real-time pacing (1x speed)
+- `-stream_loop -1` loops video infinitely for 24/7 channel
+- `hls_time 2` creates 2-second segments for faster startup
+- `hls_list_size 10` maintains sliding window of 10 most recent segments
+- No `hls_playlist_type` allows sliding window behavior (not event/vod)
 
-**720p with NVENC + Seeking:**
+**720p with NVENC + Seeking (Fast Testing Mode):**
 ```
-ffmpeg -ss 3600 -i /media/video.mp4 \
+ffmpeg -ss 3600 -stream_loop -1 -i /media/video.mp4 \
   -c:v h264_nvenc -preset p1 \
   -c:a aac -b:a 192k -ac 2 \
   -b:v 3000k -maxrate 3000k -bufsize 6000k -s 1280x720 \
-  -f hls -hls_time 6 -hls_list_size 10 \
+  -f hls -hls_time 2 -hls_list_size 10 \
   -hls_flags delete_segments \
   -hls_segment_filename /streams/channel1/720p_segment_%03d.ts \
-  -hls_playlist_type event \
   /streams/channel1/720p.m3u8
 ```
+Note: 
+- No `-re` flag = fastest encoding (16x+) for testing
+- NVENC `p1` preset maps to software `ultrafast`
+- `-ss 3600` seeks to 1 hour before looping
 
 ### Path Helpers
 

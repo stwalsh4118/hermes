@@ -1705,6 +1705,222 @@ interface MediaTreeNode {
 }
 ```
 
+## Video Components
+
+### VideoPlayer
+
+Location: `web/components/video/video-player.tsx`
+
+Core HLS video player component that handles stream playback with automatic browser detection and lifecycle management.
+
+**Props:**
+```typescript
+interface VideoPlayerProps {
+  channelId: string;
+  autoplay?: boolean;
+  className?: string;
+}
+```
+
+**Features:**
+- HLS.js integration for Chrome, Firefox, Edge (MSE-supported browsers)
+- Native HLS fallback for Safari
+- Automatic browser detection and appropriate implementation selection
+- 16:9 aspect ratio maintained
+- Loading spinner during stream initialization
+- Error handling with user-friendly messages
+- Proper HLS instance cleanup on unmount
+- Exposed video ref for custom controls integration
+- Built-in video controls
+
+**Browser Detection Logic:**
+1. Check `Hls.isSupported()` for HLS.js compatibility
+2. Fall back to `video.canPlayType('application/vnd.apple.mpegurl')` for Safari
+3. Display error if neither is supported
+
+**HLS.js Configuration:**
+```typescript
+new Hls({
+  enableWorker: true,
+  lowLatencyMode: false,  // VOD-like experience for channel streaming
+})
+```
+
+**Stream URL Format:**
+```typescript
+const streamUrl = `${apiUrl}/api/stream/${channelId}/master.m3u8`
+```
+
+**Usage:**
+```typescript
+import { VideoPlayer } from "@/components/video";
+
+// Basic usage
+<VideoPlayer channelId="550e8400-e29b-41d4-a716-446655440000" />
+
+// With custom styling and autoplay disabled
+<VideoPlayer
+  channelId="550e8400-e29b-41d4-a716-446655440000"
+  autoplay={false}
+  className="rounded-lg shadow-xl"
+/>
+
+// With ref for custom controls
+const videoRef = useRef<HTMLVideoElement>(null);
+
+<VideoPlayer
+  ref={videoRef}
+  channelId="550e8400-e29b-41d4-a716-446655440000"
+/>
+
+// Access video element methods
+videoRef.current?.pause();
+videoRef.current?.play();
+```
+
+**Event Handling:**
+- `MANIFEST_PARSED` - Hides loading spinner, triggers autoplay
+- `ERROR` - Displays error message, attempts recovery for media errors
+
+**Error Messages:**
+- "Network error. Please check your connection." - Network failures
+- "Media error. The stream may be corrupted." - Media decoding issues
+- "Autoplay blocked. Click to play." - Browser autoplay policy
+- "Your browser doesn't support HLS streaming." - Unsupported browser
+- "Failed to load video stream." - Safari native HLS errors
+
+**Cleanup:**
+The component properly destroys the HLS instance on unmount to prevent memory leaks:
+```typescript
+useEffect(() => {
+  // ... initialization
+
+  return () => {
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+  };
+}, [streamUrl]);
+```
+
+**Styling:**
+- Container: Dark background (`bg-black`) with responsive width
+- Video: Absolute positioned within 16:9 aspect ratio container (56.25% padding-bottom)
+- Loading overlay: Semi-transparent black background with centered spinner
+- Error overlay: Full overlay with icon and error message
+- Custom player controls integrated (no native controls)
+
+### PlayerControls
+
+Location: `web/components/video/player-controls.tsx`
+
+Custom video player controls overlay with volume control, quality selector, fullscreen toggle, and live indicator. Controls auto-hide after 3 seconds of inactivity with keyboard shortcut support.
+
+**Props:**
+```typescript
+interface PlayerControlsProps {
+  videoRef: React.RefObject<HTMLVideoElement>;
+  hlsRef: React.RefObject<Hls | null>;
+  channelId: string;
+  className?: string;
+}
+```
+
+**Features:**
+- Volume slider (0-100) with mute toggle
+- Quality selector for HLS streams (1080p, 720p, 480p, Auto)
+- Fullscreen button with browser API integration
+- Live indicator badge (always visible, doesn't fade)
+- Auto-hide after 3 seconds of inactivity
+- Mouse/touch interaction to show controls
+- Keyboard shortcuts support
+- Volume state persistence via Zustand player store
+- Retro styling with chunky borders and offset shadows
+
+**Keyboard Shortcuts:**
+- **Space**: Toggle play/pause
+- **F**: Toggle fullscreen
+- **M**: Toggle mute
+- **Arrow Up**: Increase volume by 5
+- **Arrow Down**: Decrease volume by 5
+
+**Volume Control:**
+- Range: 0-100 (stored in Zustand)
+- Converted to 0.0-1.0 for video element
+- Volume state persists across page reloads
+- Mute state synced with video element
+- Visual feedback: speaker icon changes based on volume level
+
+**Quality Selector:**
+- Automatically populated from HLS.js quality levels
+- "Auto" sets `hls.currentLevel = -1` (automatic quality selection)
+- Specific qualities set `hls.currentLevel` to index
+- Displays current quality in dropdown button
+- Quality levels sorted high to low (1080p, 720p, 480p, etc.)
+- Only shown when HLS stream has multiple quality levels
+
+**Fullscreen Toggle:**
+- Uses browser Fullscreen API (`requestFullscreen`, `exitFullscreen`)
+- Fullscreen applied to video container (not just video element)
+- Icon changes based on fullscreen state (Maximize/Minimize)
+- Handles fullscreen change events for state synchronization
+
+**Auto-Hide Behavior:**
+- Controls visible on mount
+- Hide after 3 seconds of no interaction
+- Show on mouse move, touch start, or click
+- Live indicator always visible (separate layer, z-index: 20)
+- Controls fade using opacity transition
+
+**HLS.js Integration:**
+- Accesses HLS instance via ref
+- Listens to `MANIFEST_PARSED` event for quality levels
+- Updates quality via `hls.currentLevel` property
+- Handles cases where HLS is not available (Safari native)
+
+**Zustand Integration:**
+- Uses `usePlayerStore` for volume state
+- Actions: `volume`, `isMuted`, `setVolume`, `setMuted`, `toggleMute`
+- Volume persisted to localStorage automatically
+- Playback state not persisted (ephemeral)
+
+**Usage:**
+```typescript
+import { PlayerControls } from "@/components/video";
+
+const videoRef = useRef<HTMLVideoElement>(null);
+const hlsRef = useRef<Hls | null>(null);
+
+<PlayerControls
+  videoRef={videoRef}
+  hlsRef={hlsRef}
+  channelId="550e8400-e29b-41d4-a716-446655440000"
+/>
+```
+
+**Styling:**
+- Controls container: Gradient overlay (`from-black via-black/80 to-transparent`)
+- Buttons: `border-2` with offset shadows (`shadow-[4px_4px_0_rgba(0,0,0,0.2)]`)
+- Hover state: Reduced shadow for press effect (`shadow-[2px_2px_0_rgba(0,0,0,0.2)]`)
+- Live indicator: Red dot with pulse animation, always visible (top-right corner)
+- Volume slider: Custom retro styling with track and thumb
+- Quality dropdown: Chunky borders and shadows matching retro theme
+- Font: Monospace for volume numbers, bold for buttons
+- Colors: White text on dark background, accent colors for live indicator
+
+**Browser Compatibility:**
+- HLS.js quality selector: Chrome, Firefox, Edge (MSE-supported browsers)
+- Safari native HLS: Quality selector hidden (Safari handles automatically)
+- Fullscreen API: All modern browsers (with prefixes handled)
+- Keyboard shortcuts: All browsers
+
+**Accessibility:**
+- ARIA labels on all buttons
+- Keyboard navigation support
+- Screen reader friendly
+- Touch-friendly tap targets (min 44x44px)
+
 ## Best Practices
 
 1. Always use `cn()` utility for combining class names

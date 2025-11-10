@@ -17,6 +17,7 @@ This document contains all Product Backlog Items (PBIs) for the Virtual TV Chann
 | 9 | User | As a user, I want to browse and organize my media library through a web interface so that I can easily manage my content | Proposed | - Media library page with table/grid view<br>- Display columns: title, show, season, episode, duration, resolution, actions<br>- Filter by show name<br>- Search by title functionality<br>- Scan library button triggering directory scan<br>- Progress indicator during scanning<br>- Media metadata editor<br>- Media browser component for playlist selection<br>- Thumbnail display where available<br>- Responsive design |
 | 10 | User | As a user, I want to watch my channels through a web player so that I can enjoy my content | Agreed | - HLS video player integration (HLS.js or Video.js)<br>- Full-width responsive player (16:9 aspect ratio)<br>- "Now playing" display with program title and description<br>- Progress bar showing position in current program<br>- "Next up" preview section<br>- Channel schedule sidebar/bottom sheet<br>- Schedule shows next 24 hours with thumbnails<br>- Auto-refresh current program info<br>- Quality selection interface<br>- Live indicator<br>- Error handling and reconnection logic<br>- Mobile and TV browser compatibility |
 | 11 | User | As a user, I want to configure system settings and deploy easily so that I can customize and maintain the service | Proposed | - Settings page UI for all configuration options<br>- Media library path configuration<br>- Streaming quality presets (High/Medium/Low)<br>- Hardware acceleration selection<br>- Custom FFmpeg parameters (advanced)<br>- Server port and host settings<br>- Settings API integration<br>- Hardware encoder detection and display<br>- Docker Compose configuration<br>- Comprehensive README with setup instructions<br>- Deployment guide documentation<br>- Error messages with actionable suggestions<br>- Loading states throughout application<br>- Confirmation dialogs for destructive actions<br>- End-to-end testing suite |
+|| 12 | System/User | As a user, I want the streaming system to generate segments on-demand so that streams start quickly without wasting resources on unwatched content | Proposed | - FFmpeg generates fixed-size batches (N segments) then exits cleanly<br>- Batch size configurable (default: 20 segments)<br>- Trigger threshold configurable (default: 5 segments)<br>- `-stream_loop -1` removed from FFmpeg commands<br>- Position tracking API endpoint functional<br>- Frontend reports current segment position every 5 seconds<br>- StreamSession tracks batch state and client positions<br>- Batch coordinator monitors and triggers generation automatically<br>- Next batch starts when furthest client reaches threshold<br>- Seamless continuation between batches (no gaps)<br>- Resource usage reduced by >70% vs continuous generation<br>- Initial batch generates in <10 seconds<br>- Integration tests verify batch operations<br>- `RealtimePacing` config option removed |
 
 ## PBI Details
 
@@ -31,6 +32,7 @@ This document contains all Product Backlog Items (PBIs) for the Virtual TV Chann
 - [PBI 9: Media Library UI](./9/prd.md)
 - [PBI 10: Video Player & Streaming UI](./10/prd.md)
 - [PBI 11: Settings, Polish & Deployment](./11/prd.md)
+- [PBI 12: Just-in-Time Segment Generation](./12/prd.md)
 
 ## History Log
 
@@ -46,4 +48,5 @@ This document contains all Product Backlog Items (PBIs) for the Virtual TV Chann
 | 20251030-000000 | 4 | propose_for_backlog | PBI-4 approved: Virtual timeline calculation algorithm for determining current playback position | User |
 | 20251030-120000 | 6 | propose_for_backlog | PBI-6 approved: Streaming engine with HLS generation, FFmpeg transcoding, hardware acceleration, multi-client support | User |
 | 20251031-000000 | 10 | propose_for_backlog | PBI-10 approved: Video player & streaming UI with HLS.js, custom controls, EPG placeholders (PBI-5 integration later) | User |
+|| 20251031-120000 | 12 | create_pbi | PBI-12 created: Just-in-time segment generation with batch-based FFmpeg execution, position tracking, and automatic triggering | AI_Agent |
 
