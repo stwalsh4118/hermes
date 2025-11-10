@@ -151,12 +151,22 @@ type StreamParams struct {
     SeekSeconds     int64         // Starting position in seconds (0 = beginning)
     SegmentDuration int           // HLS segment duration in seconds
     PlaylistSize    int           // Number of segments to keep in playlist
-    RealtimePacing  bool          // Enable -re flag for 1x speed encoding
+    RealtimePacing  bool          // Enable -re flag for 1x speed encoding (ignored in batch mode)
     EncodingPreset  string        // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
+    BatchMode       bool          // Enable batch generation mode (generates N segments then exits)
+    BatchSize       int           // Number of segments to generate per batch (required when BatchMode is true)
 }
 ```
 
 Parameters for building an FFmpeg HLS command.
+
+**Batch Mode:**
+- When `BatchMode` is `true`, FFmpeg generates exactly `BatchSize` segments then exits cleanly
+- Batch mode removes `-stream_loop -1` flag (no infinite looping)
+- Batch mode adds `-t` duration flag (totalSeconds = BatchSize * SegmentDuration)
+- Batch mode always excludes `-re` flag (fast encoding, regardless of RealtimePacing setting)
+- `SeekSeconds` is used for batch continuation (start next batch from previous position)
+- `BatchSize` must be > 0 when `BatchMode` is `true`
 
 ### FFmpegCommand
 
@@ -298,6 +308,26 @@ Note:
 - No `-re` flag = fastest encoding (16x+) for testing
 - NVENC `p1` preset maps to software `ultrafast`
 - `-ss 3600` seeks to 1 hour before looping
+
+**Batch Mode (Just-in-Time Generation):**
+```
+ffmpeg -ss 3600 -i /media/video.mp4 \
+  -c:v h264_nvenc -preset p1 \
+  -c:a aac -b:a 192k -ac 2 \
+  -b:v 5000k -maxrate 5000k -bufsize 10000k -s 1920x1080 \
+  -f hls -hls_time 2 -hls_list_size 10 \
+  -hls_flags delete_segments \
+  -hls_segment_filename /streams/channel1/1080p_segment_%03d.ts \
+  -t 40 \
+  /streams/channel1/1080p.m3u8
+```
+Note:
+- No `-re` flag (batch mode always uses fast encoding)
+- No `-stream_loop -1` (batch mode generates fixed number of segments then exits)
+- `-ss 3600` seeks to 1 hour (for batch continuation from previous position)
+- `-t 40` limits encoding to 40 seconds (20 segments × 2 seconds = 40 seconds)
+- FFmpeg exits cleanly after generating 20 segments
+- Used for just-in-time segment generation based on viewer position
 
 ### Path Helpers
 
