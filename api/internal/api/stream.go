@@ -33,6 +33,14 @@ var validQualities = map[string]bool{
 	"480p":  true,
 }
 
+// UpdatePositionRequest represents a client position update request
+type UpdatePositionRequest struct {
+	SessionID     string `json:"session_id" binding:"required"`
+	SegmentNumber int    `json:"segment_number" binding:"required,min=0"`
+	Quality       string `json:"quality" binding:"required"`
+	Timestamp     string `json:"timestamp,omitempty"`
+}
+
 // rewriteSegmentPaths modifies playlist content to include quality directory in segment paths
 // Converts "1080p_segment_000.ts" to "1080p/1080p_segment_000.ts"
 func rewriteSegmentPaths(content, quality string) string {
@@ -579,6 +587,91 @@ func (h *StreamHandler) UnregisterClient(c *gin.Context) {
 	})
 }
 
+// UpdatePosition handles POST /stream/:channel_id/position
+// This endpoint accepts client position updates and updates the stream session's client position tracking
+func (h *StreamHandler) UpdatePosition(c *gin.Context) {
+	channelIDStr := c.Param("channel_id")
+
+	// Validate UUID
+	channelID, err := uuid.Parse(channelIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "invalid_id",
+			Message: "Invalid channel ID format",
+		})
+		return
+	}
+
+	// Parse and validate request body
+	var req UpdatePositionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "invalid_request",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	// Validate quality
+	if !validQualities[req.Quality] {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "invalid_quality",
+			Message: "Quality must be 1080p, 720p, or 480p",
+		})
+		return
+	}
+
+	// Get stream session
+	session, found := h.streamManager.GetStream(channelID)
+	if !found {
+		c.JSON(http.StatusNotFound, ErrorResponse{
+			Error:   "stream_not_found",
+			Message: "Stream not found or not active",
+		})
+		return
+	}
+
+	// Update client position in session
+	session.UpdateClientPosition(req.SessionID, req.SegmentNumber, req.Quality)
+
+	// Get current batch information
+	currentBatch := session.GetCurrentBatch()
+	furthestSegment := session.GetFurthestPosition()
+
+	// Calculate segments remaining
+	var currentBatchNumber int
+	var segmentsRemaining int
+	if currentBatch != nil {
+		currentBatchNumber = currentBatch.BatchNumber
+		if furthestSegment <= currentBatch.EndSegment {
+			segmentsRemaining = currentBatch.EndSegment - furthestSegment
+		} else {
+			// Client is ahead of current batch (shouldn't happen normally, but handle gracefully)
+			segmentsRemaining = 0
+		}
+	} else {
+		// No batch set yet (stream just starting)
+		currentBatchNumber = 0
+		segmentsRemaining = 0
+	}
+
+	logger.Log.Info().
+		Str("channel_id", channelID.String()).
+		Str("session_id", req.SessionID).
+		Int("segment_number", req.SegmentNumber).
+		Str("quality", req.Quality).
+		Int("current_batch", currentBatchNumber).
+		Int("segments_remaining", segmentsRemaining).
+		Msg("Client position updated")
+
+	// Return acknowledgment with batch information
+	c.JSON(http.StatusOK, gin.H{
+		"acknowledged":       true,
+		"current_batch":      currentBatchNumber,
+		"segments_remaining": segmentsRemaining,
+	})
+}
+
 // SetupStreamRoutes registers streaming-related routes
 func SetupStreamRoutes(apiGroup *gin.RouterGroup, manager *streaming.StreamManager) {
 	handler := NewStreamHandler(manager)
@@ -589,6 +682,7 @@ func SetupStreamRoutes(apiGroup *gin.RouterGroup, manager *streaming.StreamManag
 	// HLS streaming endpoints - order matters for Gin routing
 	streamGroup.GET("/:channel_id/master.m3u8", handler.GetMasterPlaylist)
 	streamGroup.DELETE("/:channel_id/client", handler.UnregisterClient)
+	streamGroup.POST("/:channel_id/position", handler.UpdatePosition)
 	// More specific route (3 segments) must come before less specific (2 segments)
 	streamGroup.GET("/:channel_id/:quality/:segment", handler.GetSegment)
 	streamGroup.GET("/:channel_id/:quality", handler.GetMediaPlaylist)

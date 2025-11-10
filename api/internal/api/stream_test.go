@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -69,6 +70,7 @@ func setupStreamTestRouter(manager *mockStreamManager) *gin.Engine {
 
 	streamGroup.GET("/:channel_id/master.m3u8", handler.GetMasterPlaylist)
 	streamGroup.DELETE("/:channel_id/client", handler.UnregisterClient)
+	streamGroup.POST("/:channel_id/position", handler.UpdatePosition)
 	streamGroup.GET("/:channel_id/:quality/:segment", handler.GetSegment)
 	streamGroup.GET("/:channel_id/:quality", handler.GetMediaPlaylist)
 
@@ -537,4 +539,334 @@ func TestUnregisterClient_NotFound(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
 	assert.Equal(t, "stream_not_found", response.Error)
+}
+
+func TestUpdatePosition_Success(t *testing.T) {
+	channelID := uuid.New()
+	session := models.NewStreamSession(channelID)
+	
+	// Set up a batch state for testing
+	batch := &models.BatchState{
+		BatchNumber:  2,
+		StartSegment: 20,
+		EndSegment:   39,
+		IsComplete:   true,
+	}
+	session.SetCurrentBatch(batch)
+	
+	// Set initial furthest segment
+	session.UpdateClientPosition("existing-session", 25, "1080p")
+
+	mockManager := &mockStreamManager{
+		getStreamFunc: func(id uuid.UUID) (*models.StreamSession, bool) {
+			if id == channelID {
+				return session, true
+			}
+			return nil, false
+		},
+	}
+
+	router := setupStreamTestRouter(mockManager)
+
+	// Create request body
+	requestBody := `{
+		"session_id": "test-session-123",
+		"segment_number": 30,
+		"quality": "1080p",
+		"timestamp": "2025-10-31T12:34:56Z"
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/stream/%s/position", channelID.String()), strings.NewReader(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, true, response["acknowledged"])
+	assert.Equal(t, float64(2), response["current_batch"]) // JSON numbers are float64
+	assert.Equal(t, float64(9), response["segments_remaining"]) // 39 - 30 = 9
+
+	// Verify position was updated
+	furthestSegment := session.GetFurthestPosition()
+	assert.Equal(t, 30, furthestSegment) // Should be updated to 30
+}
+
+func TestUpdatePosition_Success_NoBatch(t *testing.T) {
+	channelID := uuid.New()
+	session := models.NewStreamSession(channelID)
+	// No batch set yet (stream just starting)
+
+	mockManager := &mockStreamManager{
+		getStreamFunc: func(id uuid.UUID) (*models.StreamSession, bool) {
+			if id == channelID {
+				return session, true
+			}
+			return nil, false
+		},
+	}
+
+	router := setupStreamTestRouter(mockManager)
+
+	requestBody := `{
+		"session_id": "test-session-123",
+		"segment_number": 5,
+		"quality": "720p"
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/stream/%s/position", channelID.String()), strings.NewReader(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, true, response["acknowledged"])
+	assert.Equal(t, float64(0), response["current_batch"])
+	assert.Equal(t, float64(0), response["segments_remaining"])
+}
+
+func TestUpdatePosition_InvalidUUID(t *testing.T) {
+	mockManager := &mockStreamManager{}
+	router := setupStreamTestRouter(mockManager)
+
+	requestBody := `{
+		"session_id": "test-session-123",
+		"segment_number": 5,
+		"quality": "1080p"
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/stream/invalid-uuid/position", strings.NewReader(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var response ErrorResponse
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, "invalid_id", response.Error)
+}
+
+func TestUpdatePosition_StreamNotFound(t *testing.T) {
+	channelID := uuid.New()
+
+	mockManager := &mockStreamManager{
+		getStreamFunc: func(_ uuid.UUID) (*models.StreamSession, bool) {
+			return nil, false
+		},
+	}
+
+	router := setupStreamTestRouter(mockManager)
+
+	requestBody := `{
+		"session_id": "test-session-123",
+		"segment_number": 5,
+		"quality": "1080p"
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/stream/%s/position", channelID.String()), strings.NewReader(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+
+	var response ErrorResponse
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, "stream_not_found", response.Error)
+}
+
+func TestUpdatePosition_MissingRequiredFields(t *testing.T) {
+	channelID := uuid.New()
+	session := models.NewStreamSession(channelID)
+
+	mockManager := &mockStreamManager{
+		getStreamFunc: func(id uuid.UUID) (*models.StreamSession, bool) {
+			if id == channelID {
+				return session, true
+			}
+			return nil, false
+		},
+	}
+
+	router := setupStreamTestRouter(mockManager)
+
+	testCases := []struct {
+		name        string
+		requestBody string
+	}{
+		{
+			name:        "missing session_id",
+			requestBody: `{"segment_number": 5, "quality": "1080p"}`,
+		},
+		{
+			name:        "missing segment_number",
+			requestBody: `{"session_id": "test-session", "quality": "1080p"}`,
+		},
+		{
+			name:        "missing quality",
+			requestBody: `{"session_id": "test-session", "segment_number": 5}`,
+		},
+		{
+			name:        "empty body",
+			requestBody: `{}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/stream/%s/position", channelID.String()), strings.NewReader(tc.requestBody))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+
+			var response ErrorResponse
+			err := json.Unmarshal(w.Body.Bytes(), &response)
+			require.NoError(t, err)
+			assert.Equal(t, "invalid_request", response.Error)
+		})
+	}
+}
+
+func TestUpdatePosition_InvalidSegmentNumber(t *testing.T) {
+	channelID := uuid.New()
+	session := models.NewStreamSession(channelID)
+
+	mockManager := &mockStreamManager{
+		getStreamFunc: func(id uuid.UUID) (*models.StreamSession, bool) {
+			if id == channelID {
+				return session, true
+			}
+			return nil, false
+		},
+	}
+
+	router := setupStreamTestRouter(mockManager)
+
+	// Test negative segment number
+	requestBody := `{
+		"session_id": "test-session-123",
+		"segment_number": -1,
+		"quality": "1080p"
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/stream/%s/position", channelID.String()), strings.NewReader(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var response ErrorResponse
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, "invalid_request", response.Error)
+}
+
+func TestUpdatePosition_InvalidQuality(t *testing.T) {
+	channelID := uuid.New()
+	session := models.NewStreamSession(channelID)
+
+	mockManager := &mockStreamManager{
+		getStreamFunc: func(id uuid.UUID) (*models.StreamSession, bool) {
+			if id == channelID {
+				return session, true
+			}
+			return nil, false
+		},
+	}
+
+	router := setupStreamTestRouter(mockManager)
+
+	testCases := []struct {
+		name        string
+		quality     string
+		expectedErr string
+	}{
+		{"invalid quality 4K", "4K", "invalid_quality"},
+		{"invalid quality 360p", "360p", "invalid_quality"},
+		{"invalid quality empty", "", "invalid_request"}, // Empty string fails binding "required" check
+		{"invalid quality random", "random", "invalid_quality"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			requestBody := fmt.Sprintf(`{
+				"session_id": "test-session-123",
+				"segment_number": 5,
+				"quality": "%s"
+			}`, tc.quality)
+
+			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/stream/%s/position", channelID.String()), strings.NewReader(requestBody))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+
+			var response ErrorResponse
+			err := json.Unmarshal(w.Body.Bytes(), &response)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedErr, response.Error)
+		})
+	}
+}
+
+func TestUpdatePosition_SegmentsRemaining_ClientAhead(t *testing.T) {
+	channelID := uuid.New()
+	session := models.NewStreamSession(channelID)
+	
+	// Set up a batch state
+	batch := &models.BatchState{
+		BatchNumber:  1,
+		StartSegment: 0,
+		EndSegment:   19,
+		IsComplete:   true,
+	}
+	session.SetCurrentBatch(batch)
+	
+	// Client is ahead of batch end (edge case)
+	session.UpdateClientPosition("test-session", 25, "1080p")
+
+	mockManager := &mockStreamManager{
+		getStreamFunc: func(id uuid.UUID) (*models.StreamSession, bool) {
+			if id == channelID {
+				return session, true
+			}
+			return nil, false
+		},
+	}
+
+	router := setupStreamTestRouter(mockManager)
+
+	requestBody := `{
+		"session_id": "test-session",
+		"segment_number": 30,
+		"quality": "1080p"
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/stream/%s/position", channelID.String()), strings.NewReader(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, true, response["acknowledged"])
+	assert.Equal(t, float64(1), response["current_batch"])
+	assert.Equal(t, float64(0), response["segments_remaining"]) // Client ahead, so 0 remaining
 }
