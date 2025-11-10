@@ -154,6 +154,28 @@ streaming:
   # Default: 60
   cleanupinterval: 60
 
+  # ============================================================================
+  # Just-in-Time Batch Generation Configuration
+  # ============================================================================
+  # These settings control batch-based segment generation for efficient
+  # resource usage. Segments are generated in batches only as viewers need them.
+  
+  # Number of segments to generate per batch
+  # Larger batches = more buffer but more resource usage per generation cycle
+  # Smaller batches = less resource usage but more frequent generation cycles
+  # With default segment duration of 2 seconds: 20 segments = 40 seconds of content
+  # Environment variable: HERMES_STREAMING_BATCHSIZE
+  # Default: 20
+  batchsize: 20
+  
+  # Number of segments remaining before triggering next batch generation
+  # When viewers reach this threshold, the next batch starts generating
+  # Must be less than batchsize to ensure continuous playback
+  # With default values: triggers next batch when 5 segments remain (10 seconds buffer)
+  # Environment variable: HERMES_STREAMING_TRIGGERTHRESHOLD
+  # Default: 5
+  triggerthreshold: 5
+
 # ============================================================================
 # Example Configurations
 # ============================================================================

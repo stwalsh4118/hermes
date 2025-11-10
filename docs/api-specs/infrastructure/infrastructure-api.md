@@ -126,6 +126,8 @@ type StreamingConfig struct {
     SegmentPath        string // Default: "./data/streams" - Directory for segments
     GracePeriodSeconds int    // Default: 30 - Keep-alive after last client
     CleanupInterval    int    // Default: 60 - Cleanup interval in seconds
+    BatchSize          int    // Default: 20 - Number of segments per batch
+    TriggerThreshold   int    // Default: 5 - Generate next batch when N segments remain
 }
 ```
 
@@ -159,6 +161,8 @@ HERMES_STREAMING_PLAYLISTSIZE=10
 HERMES_STREAMING_SEGMENTPATH=./data/streams
 HERMES_STREAMING_GRACEPERIODSECONDS=30
 HERMES_STREAMING_CLEANUPINTERVAL=60
+HERMES_STREAMING_BATCHSIZE=20
+HERMES_STREAMING_TRIGGERTHRESHOLD=5
 ```
 
 ### .env File Support
@@ -207,6 +211,8 @@ streaming:
   segmentpath: "./data/streams"
   graceperiodseconds: 30
   cleanupinterval: 60
+  batchsize: 20
+  triggerthreshold: 5
 ```
 
 ### Configuration Validation
@@ -221,6 +227,9 @@ The `Load()` function automatically validates configuration:
 - Grace period must be >= 0
 - Cleanup interval must be > 0
 - Segment path cannot be empty
+- Batch size must be > 0
+- Trigger threshold must be > 0
+- Trigger threshold must be < batch size
 - Returns error if validation fails
 
 **Example Error Handling:**
