@@ -9,7 +9,7 @@ This document lists all tasks associated with PBI 12.
 | Task ID | Name | Status | Description |
 | :------ | :--- | :----- | :---------- |
 | 12-1 | [Add batch configuration options](./12-1.md) | Done | Add BatchSize and TriggerThreshold to StreamingConfig with validation and defaults |
-| 12-2 | [Extend StreamSession model for batch tracking](./12-2.md) | Proposed | Add batch state tracking to StreamSession: batch number, segment range, video position, client positions |
+| 12-2 | [Extend StreamSession model for batch tracking](./12-2.md) | Done | Add batch state tracking to StreamSession: batch number, segment range, video position, client positions |
 | 12-3 | [Implement position tracking API endpoint](./12-3.md) | Proposed | Create POST /stream/:channel_id/position endpoint for client position reporting |
 | 12-4 | [Modify FFmpeg command builder for batch mode](./12-4.md) | Proposed | Update BuildHLSCommand to generate fixed segment batches, remove -stream_loop, add segment limiting |
 | 12-5 | [Create batch coordinator](./12-5.md) | Proposed | Implement BatchCoordinator in StreamManager that monitors positions and triggers next batch |
