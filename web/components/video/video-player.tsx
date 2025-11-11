@@ -12,6 +12,59 @@ interface VideoPlayerProps {
   className?: string;
 }
 
+// Position reporting constants
+const POSITION_REPORT_INTERVAL = 5000; // 5 seconds
+const SEGMENT_DURATION = 2; // seconds, based on HLS config in API specs
+
+/**
+ * Maps HLS.js level height to quality string
+ */
+function getQualityFromHeight(height: number | undefined): string {
+  if (!height) return "1080p";
+  
+  if (height >= 1080) return "1080p";
+  if (height >= 720) return "720p";
+  if (height >= 480) return "480p";
+  
+  return "1080p"; // Default fallback
+}
+
+/**
+ * Gets current quality from HLS.js instance or falls back to default
+ */
+function getCurrentQuality(hls: Hls | null): string {
+  if (!hls) return "1080p";
+  
+  const currentLevel = hls.currentLevel;
+  const levels = hls.levels;
+  
+  if (currentLevel === -1) {
+    // Auto mode - use highest available quality as estimate
+    // (we can't reliably determine which level is currently playing in auto mode)
+    if (levels && levels.length > 0) {
+      // Find the highest quality level
+      const highestLevel = levels.reduce((max, level) => {
+        const maxHeight = max?.height || 0;
+        const levelHeight = level?.height || 0;
+        return levelHeight > maxHeight ? level : max;
+      });
+      
+      if (highestLevel?.height) {
+        return getQualityFromHeight(highestLevel.height);
+      }
+    }
+    return "1080p"; // Default for auto mode
+  }
+  
+  // Manual quality selection - get the selected level
+  if (levels && currentLevel >= 0 && currentLevel < levels.length) {
+    const level = levels[currentLevel];
+    return getQualityFromHeight(level.height);
+  }
+  
+  return "1080p"; // Default fallback
+}
+
 export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
   ({ channelId, autoplay = true, className = "" }, ref) => {
     const [isLoading, setIsLoading] = useState(true);
@@ -90,6 +143,113 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       video.addEventListener('play', handlePlay);
       return () => video.removeEventListener('play', handlePlay);
     }, []);
+
+    // Position reporting: Send current playback position to backend every 5 seconds
+    useEffect(() => {
+      const video = videoRef.current;
+      if (!video) return;
+
+      let intervalId: NodeJS.Timeout | null = null;
+
+      const reportPosition = async () => {
+        // Only report when video is playing
+        if (video.paused || video.ended) {
+          return;
+        }
+
+        try {
+          // Calculate segment number from current time
+          const currentTime = video.currentTime;
+          const segmentNumber = Math.floor(currentTime / SEGMENT_DURATION);
+
+          // Get current quality
+          const quality = getCurrentQuality(hlsRef.current);
+
+          // Prepare request body
+          const requestBody = {
+            session_id: sessionId,
+            segment_number: segmentNumber,
+            quality: quality,
+            timestamp: new Date().toISOString(),
+          };
+
+          // Send position update to backend
+          const positionUrl = `${apiUrl}/api/stream/${channelId}/position`;
+          const response = await fetch(positionUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(requestBody),
+          });
+
+          if (!response.ok) {
+            // Log errors but don't interrupt playback
+            if (response.status === 404) {
+              console.debug(`[VideoPlayer] Stream not found for position reporting (may be expected)`);
+            } else {
+              console.warn(`[VideoPlayer] Position reporting failed: ${response.status} ${response.statusText}`);
+            }
+            return;
+          }
+
+          // Optionally log successful reports in development
+          if (process.env.NODE_ENV === "development") {
+            const data = await response.json().catch(() => null);
+            if (data) {
+              console.debug(`[VideoPlayer] Position reported: segment ${segmentNumber}, quality ${quality}, batch ${data.current_batch}, ${data.segments_remaining} remaining`);
+            }
+          }
+        } catch (error) {
+          // Log errors but don't interrupt playback
+          console.debug(`[VideoPlayer] Position reporting error (non-fatal):`, error);
+        }
+      };
+
+      // Set up interval to report position every 5 seconds
+      const startReporting = () => {
+        // Clear any existing interval
+        if (intervalId) {
+          clearInterval(intervalId);
+        }
+
+        // Report immediately on play
+        reportPosition();
+
+        // Then report every 5 seconds
+        intervalId = setInterval(() => {
+          reportPosition();
+        }, POSITION_REPORT_INTERVAL);
+      };
+
+      // Stop reporting when paused or ended
+      const stopReporting = () => {
+        if (intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+      };
+
+      // Start reporting when video starts playing
+      video.addEventListener('play', startReporting);
+      
+      // Stop reporting when video is paused or ended
+      video.addEventListener('pause', stopReporting);
+      video.addEventListener('ended', stopReporting);
+
+      // Initial check: if video is already playing, start reporting
+      if (!video.paused && !video.ended) {
+        startReporting();
+      }
+
+      // Cleanup: stop reporting and remove event listeners
+      return () => {
+        stopReporting();
+        video.removeEventListener('play', startReporting);
+        video.removeEventListener('pause', stopReporting);
+        video.removeEventListener('ended', stopReporting);
+      };
+    }, [channelId, sessionId, apiUrl]);
 
     useEffect(() => {
       const video = videoRef.current;
