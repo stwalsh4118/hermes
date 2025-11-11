@@ -29,7 +29,7 @@ type HealthStatus struct {
 	TimeSinceLastWrite time.Duration // Time elapsed since last write
 	WindowSize         uint          // Current window size
 	MaxDuration        float64       // Maximum observed segment duration
-	StaleThreshold    time.Duration // Threshold for considering playlist stale
+	StaleThreshold     time.Duration // Threshold for considering playlist stale
 }
 
 // Manager manages a sliding-window HLS media playlist
@@ -47,13 +47,13 @@ type Manager interface {
 
 // playlistManager implements Manager using hls-m3u8 library
 type playlistManager struct {
-	mu                 sync.RWMutex
-	playlist           *m3u8.MediaPlaylist
-	outputPath         string
-	windowSize         uint
-	maxDuration        float64
-	discontinuityNext  bool
-	totalSegments      uint64    // Track total segments added for SeqNo calculation
+	mu                  sync.RWMutex
+	playlist            *m3u8.MediaPlaylist
+	outputPath          string
+	windowSize          uint
+	maxDuration         float64
+	discontinuityNext   bool
+	totalSegments       uint64     // Track total segments added for SeqNo calculation
 	lastSuccessfulWrite *time.Time // Track last successful write timestamp for health checks
 }
 
@@ -377,8 +377,8 @@ func (pm *playlistManager) HealthCheck(staleThreshold time.Duration) HealthStatu
 
 	status := HealthStatus{
 		LastWriteTime:  pm.lastSuccessfulWrite,
-		WindowSize:      uint(pm.playlist.Count()),
-		MaxDuration:     pm.maxDuration,
+		WindowSize:     uint(pm.playlist.Count()),
+		MaxDuration:    pm.maxDuration,
 		StaleThreshold: staleThreshold,
 	}
 
