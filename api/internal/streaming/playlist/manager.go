@@ -22,6 +22,16 @@ type SegmentMeta struct {
 	Discontinuity   bool       // Whether to insert discontinuity before this segment
 }
 
+// HealthStatus represents the health status of a playlist manager
+type HealthStatus struct {
+	Healthy            bool          // Whether the playlist is healthy
+	LastWriteTime      *time.Time    // Last successful write timestamp
+	TimeSinceLastWrite time.Duration // Time elapsed since last write
+	WindowSize         uint          // Current window size
+	MaxDuration        float64       // Maximum observed segment duration
+	StaleThreshold    time.Duration // Threshold for considering playlist stale
+}
+
 // Manager manages a sliding-window HLS media playlist
 type Manager interface {
 	AddSegment(seg SegmentMeta) error
@@ -29,17 +39,22 @@ type Manager interface {
 	Write() error
 	Close() error
 	GetCurrentSegments() []string
+	GetLastSuccessfulWrite() *time.Time
+	GetWindowSize() uint
+	GetMaxDuration() float64
+	HealthCheck(staleThreshold time.Duration) HealthStatus
 }
 
 // playlistManager implements Manager using hls-m3u8 library
 type playlistManager struct {
-	mu                sync.RWMutex
-	playlist          *m3u8.MediaPlaylist
-	outputPath        string
-	windowSize        uint
-	maxDuration       float64
-	discontinuityNext bool
-	totalSegments     uint64 // Track total segments added for SeqNo calculation
+	mu                 sync.RWMutex
+	playlist           *m3u8.MediaPlaylist
+	outputPath         string
+	windowSize         uint
+	maxDuration        float64
+	discontinuityNext  bool
+	totalSegments      uint64    // Track total segments added for SeqNo calculation
+	lastSuccessfulWrite *time.Time // Track last successful write timestamp for health checks
 }
 
 const (
@@ -136,6 +151,7 @@ func (pm *playlistManager) AddSegment(seg SegmentMeta) error {
 	// When window size is exceeded, oldest segments are pruned
 	// SeqNo should be the SeqId of the first segment remaining
 	currentCount := pm.playlist.Count()
+	currentWindowSize := uint(currentCount)
 	if pm.totalSegments > uint64(currentCount) {
 		// Segments have been pruned, update SeqNo to first remaining segment's SeqId
 		pm.playlist.SeqNo = pm.totalSegments - uint64(currentCount)
@@ -144,12 +160,16 @@ func (pm *playlistManager) AddSegment(seg SegmentMeta) error {
 		pm.playlist.SeqNo = 0
 	}
 
-	logger.Log.Debug().
-		Str("uri", seg.URI).
-		Float64("duration", seg.Duration).
+	// Log segment addition with observability metrics
+	logger.Log.Info().
+		Str("segment_uri", seg.URI).
+		Float64("segment_duration", seg.Duration).
+		Uint64("segment_seq", pm.totalSegments-1).
 		Uint64("media_sequence", pm.playlist.SeqNo).
+		Uint("window_size", currentWindowSize).
 		Uint("target_duration", pm.playlist.TargetDuration).
-		Uint("segments", pm.playlist.Count()).
+		Float64("max_duration", pm.maxDuration).
+		Bool("discontinuity", pm.discontinuityNext || seg.Discontinuity).
 		Msg("Segment added to playlist")
 
 	return nil
@@ -168,12 +188,15 @@ func (pm *playlistManager) SetDiscontinuityNext() {
 
 // Write writes the playlist to disk atomically
 func (pm *playlistManager) Write() error {
+	writeStartTime := time.Now()
+
 	pm.mu.Lock()
 
 	// Ensure SeqNo is up to date before encoding
 	// SeqNo represents the sequence number of the first segment in the playlist
 	// After pruning, SeqNo = totalSegments - currentCount
 	currentCount := pm.playlist.Count()
+	currentWindowSize := uint(currentCount)
 	if pm.totalSegments > uint64(currentCount) {
 		// Segments have been pruned
 		pm.playlist.SeqNo = pm.totalSegments - uint64(currentCount)
@@ -185,6 +208,7 @@ func (pm *playlistManager) Write() error {
 	// Encode playlist to m3u8 format (returns *bytes.Buffer)
 	buf := pm.playlist.Encode()
 	if buf == nil {
+		pm.mu.Unlock()
 		return fmt.Errorf("failed to encode playlist")
 	}
 	content := buf.Bytes()
@@ -193,6 +217,7 @@ func (pm *playlistManager) Write() error {
 	outputPath := pm.outputPath
 	seqNo := pm.playlist.SeqNo
 	segCount := pm.playlist.Count()
+	maxDuration := pm.maxDuration
 
 	// Release lock before file I/O operations (file I/O can be slow)
 	pm.mu.Unlock()
@@ -241,12 +266,35 @@ func (pm *playlistManager) Write() error {
 	// Success - prevent cleanup
 	tempFile = nil
 
-	logger.Log.Debug().
+	// Calculate write latency
+	writeLatencyMs := time.Since(writeStartTime).Milliseconds()
+
+	// Update last successful write timestamp
+	pm.mu.Lock()
+	now := time.Now()
+	pm.lastSuccessfulWrite = &now
+	pm.mu.Unlock()
+
+	// Log playlist write with observability metrics
+	logger.Log.Info().
 		Str("path", outputPath).
 		Int("bytes", len(content)).
 		Uint64("media_sequence", seqNo).
+		Uint("window_size", currentWindowSize).
 		Uint("segments", segCount).
+		Float64("max_duration", maxDuration).
+		Uint("target_duration", pm.playlist.TargetDuration).
+		Int64("write_latency_ms", writeLatencyMs).
+		Time("last_write_time", now).
 		Msg("Playlist written atomically")
+
+	// Warn if write latency is high (>100ms)
+	if writeLatencyMs > 100 {
+		logger.Log.Warn().
+			Str("path", outputPath).
+			Int64("write_latency_ms", writeLatencyMs).
+			Msg("Playlist write latency higher than expected")
+	}
 
 	return nil
 }
@@ -298,4 +346,51 @@ func (pm *playlistManager) GetCurrentSegments() []string {
 	}
 
 	return segments
+}
+
+// GetLastSuccessfulWrite returns the timestamp of the last successful playlist write
+func (pm *playlistManager) GetLastSuccessfulWrite() *time.Time {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.lastSuccessfulWrite
+}
+
+// GetWindowSize returns the current window size (number of segments in playlist)
+func (pm *playlistManager) GetWindowSize() uint {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return uint(pm.playlist.Count())
+}
+
+// GetMaxDuration returns the maximum observed segment duration
+func (pm *playlistManager) GetMaxDuration() float64 {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.maxDuration
+}
+
+// HealthCheck checks the health of the playlist manager based on last successful write
+// A playlist is considered unhealthy if no write has occurred within staleThreshold duration
+func (pm *playlistManager) HealthCheck(staleThreshold time.Duration) HealthStatus {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	status := HealthStatus{
+		LastWriteTime:  pm.lastSuccessfulWrite,
+		WindowSize:      uint(pm.playlist.Count()),
+		MaxDuration:     pm.maxDuration,
+		StaleThreshold: staleThreshold,
+	}
+
+	if pm.lastSuccessfulWrite == nil {
+		// No write has occurred yet
+		status.Healthy = false
+		status.TimeSinceLastWrite = 0
+		return status
+	}
+
+	status.TimeSinceLastWrite = time.Since(*pm.lastSuccessfulWrite)
+	status.Healthy = status.TimeSinceLastWrite < staleThreshold
+
+	return status
 }
