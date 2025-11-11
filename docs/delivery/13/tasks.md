@@ -8,7 +8,7 @@ This document lists all tasks associated with PBI 13.
 
 | Task ID | Name | Status | Description |
 | :------ | :--- | :----- | :---------- |
-| 13-1 | [FFmpeg 4s TS stream_segment pipeline](./13-1.md) | Proposed | Emit 4s MPEG-TS segments with enforced GOP/keyframes (no playlist) |
+| 13-1 | [FFmpeg 4s TS stream_segment pipeline](./13-1.md) | Done | Emit 4s MPEG-TS segments with enforced GOP/keyframes (no playlist) |
 | 13-2 | [hls-m3u8 package usage guide](./13-2.md) | Proposed | Produce usage guide and validate API assumptions per policy 2.1.9 |
 | 13-3 | [Playlist Manager using hls-m3u8](./13-3.md) | Proposed | Build sliding-window media playlist with atomic writes |
 | 13-4 | [Segment Watcher and pruning](./13-4.md) | Proposed | Detect new segments and prune beyond (window + safety) |

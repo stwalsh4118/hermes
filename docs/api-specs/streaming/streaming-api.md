@@ -144,20 +144,24 @@ const (
 
 ```go
 type StreamParams struct {
-    InputFile       string        // Path to input video file
-    OutputPath      string        // Full path to output .m3u8 playlist
-    Quality         string        // Quality level (1080p, 720p, 480p)
-    HardwareAccel   HardwareAccel // Hardware acceleration method
-    SeekSeconds     int64         // Starting position in seconds (0 = beginning)
-    SegmentDuration int           // HLS segment duration in seconds
-    PlaylistSize    int           // Number of segments to keep in playlist
-    EncodingPreset  string        // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
-    BatchMode       bool          // Enable batch generation mode (generates N segments then exits)
-    BatchSize       int           // Number of segments to generate per batch (required when BatchMode is true)
+    InputFile                string        // Path to input video file
+    OutputPath               string        // Full path to output .m3u8 playlist (HLS mode) or segment directory (stream_segment mode)
+    Quality                  string        // Quality level (1080p, 720p, 480p)
+    HardwareAccel            HardwareAccel // Hardware acceleration method
+    SeekSeconds              int64         // Starting position in seconds (0 = beginning)
+    SegmentDuration          int           // HLS segment duration in seconds
+    PlaylistSize             int           // Number of segments to keep in playlist
+    EncodingPreset            string        // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
+    BatchMode                bool          // Enable batch generation mode (generates N segments then exits)
+    BatchSize                int           // Number of segments to generate per batch (required when BatchMode is true)
+    StreamSegmentMode        bool          // Enable stream_segment muxer mode (generates TS segments without playlist)
+    SegmentOutputDir         string        // Directory for segment output (required when StreamSegmentMode is true)
+    SegmentFilenamePattern   string        // Filename pattern for segments with strftime (e.g., seg-%Y%m%dT%H%M%S.ts)
+    FPS                      int           // Frames per second for GOP calculations (default: 30 if not provided)
 }
 ```
 
-Parameters for building an FFmpeg HLS command.
+Parameters for building an FFmpeg HLS or stream_segment command.
 
 **Batch Mode:**
 - When `BatchMode` is `true`, FFmpeg generates exactly `BatchSize` segments then exits cleanly
@@ -183,11 +187,19 @@ Represents a built FFmpeg command ready for execution.
 func BuildHLSCommand(params StreamParams) (*FFmpegCommand, error)
 ```
 
-Builds a complete FFmpeg command for HLS stream generation with specified quality and hardware acceleration.
+Builds a complete FFmpeg command for HLS stream generation or stream_segment mode with specified quality and hardware acceleration. When `StreamSegmentMode` is `true`, generates TS segments without playlist output.
 
 **Returns:**
 - `*FFmpegCommand`: Built command with all arguments
 - `error`: Validation errors (invalid quality, hardware accel, paths, or params)
+
+**Stream Segment Mode:**
+- When `StreamSegmentMode` is `true`, uses `-f stream_segment` instead of `-f hls`
+- Emits MPEG-TS segments only (no `.m3u8` playlist)
+- Enforces GOP alignment: `-g (fps*segmentDuration)`, `-keyint_min (fps*segmentDuration)`, `-sc_threshold 0`
+- Forces keyframes: `-force_key_frames "expr:gte(t,n_forced*segmentDuration)"`
+- Explicit stream mapping: `-map 0:v:0 -map 0:a:0`
+- Uses strftime for segment filenames: `-strftime 1`
 
 **Usage:**
 ```go
