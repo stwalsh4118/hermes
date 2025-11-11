@@ -41,27 +41,34 @@ const (
 
 // Common errors
 var (
-	ErrInvalidQuality         = errors.New("invalid quality level")
-	ErrInvalidHardwareAccel   = errors.New("invalid hardware acceleration method")
-	ErrEmptyInputFile         = errors.New("input file cannot be empty")
-	ErrEmptyOutputPath        = errors.New("output path cannot be empty")
-	ErrInvalidSegmentDuration = errors.New("segment duration must be positive")
-	ErrInvalidPlaylistSize    = errors.New("playlist size must be positive")
-	ErrInvalidBatchSize       = errors.New("batch size must be positive when batch mode is enabled")
+	ErrInvalidQuality              = errors.New("invalid quality level")
+	ErrInvalidHardwareAccel        = errors.New("invalid hardware acceleration method")
+	ErrEmptyInputFile              = errors.New("input file cannot be empty")
+	ErrEmptyOutputPath             = errors.New("output path cannot be empty")
+	ErrInvalidSegmentDuration      = errors.New("segment duration must be positive")
+	ErrInvalidPlaylistSize         = errors.New("playlist size must be positive")
+	ErrInvalidBatchSize            = errors.New("batch size must be positive when batch mode is enabled")
+	ErrEmptySegmentOutputDir       = errors.New("segment output directory cannot be empty when stream segment mode is enabled")
+	ErrEmptySegmentFilenamePattern = errors.New("segment filename pattern cannot be empty when stream segment mode is enabled")
+	ErrInvalidFPS                  = errors.New("FPS must be positive")
 )
 
 // StreamParams contains all parameters needed to build an FFmpeg HLS command
 type StreamParams struct {
-	InputFile       string        // Path to input video file
-	OutputPath      string        // Full path to output .m3u8 playlist
-	Quality         string        // Quality level (1080p, 720p, 480p)
-	HardwareAccel   HardwareAccel // Hardware acceleration method
-	SeekSeconds     int64         // Starting position in seconds (0 = beginning)
-	SegmentDuration int           // HLS segment duration in seconds
-	PlaylistSize    int           // Number of segments to keep in playlist
-	EncodingPreset  string        // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
-	BatchMode       bool          // Enable batch generation mode (generates N segments then exits)
-	BatchSize       int           // Number of segments to generate per batch (required when BatchMode is true)
+	InputFile              string        // Path to input video file
+	OutputPath             string        // Full path to output .m3u8 playlist (HLS mode) or segment directory (stream_segment mode)
+	Quality                string        // Quality level (1080p, 720p, 480p)
+	HardwareAccel          HardwareAccel // Hardware acceleration method
+	SeekSeconds            int64         // Starting position in seconds (0 = beginning)
+	SegmentDuration        int           // HLS segment duration in seconds
+	PlaylistSize           int           // Number of segments to keep in playlist
+	EncodingPreset         string        // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
+	BatchMode              bool          // Enable batch generation mode (generates N segments then exits)
+	BatchSize              int           // Number of segments to generate per batch (required when BatchMode is true)
+	StreamSegmentMode      bool          // Enable stream_segment muxer mode (generates TS segments without playlist)
+	SegmentOutputDir       string        // Directory for segment output (required when StreamSegmentMode is true)
+	SegmentFilenamePattern string        // Filename pattern for segments with strftime (e.g., seg-%Y%m%dT%H%M%S.ts)
+	FPS                    int           // Frames per second for GOP calculations (default: 30 if not provided)
 }
 
 // FFmpegCommand represents a built FFmpeg command
@@ -108,6 +115,7 @@ func getQualitySpec(quality string) (*qualitySpec, error) {
 }
 
 // BuildHLSCommand builds a complete FFmpeg command for HLS stream generation
+// When StreamSegmentMode is true, it builds a stream_segment command instead
 func BuildHLSCommand(params StreamParams) (*FFmpegCommand, error) {
 	// Validate parameters
 	if err := validateStreamParams(params); err != nil {
@@ -115,7 +123,7 @@ func BuildHLSCommand(params StreamParams) (*FFmpegCommand, error) {
 	}
 
 	// Build command arguments in correct order
-	args := make([]string, 0, 30)
+	args := make([]string, 0, 40)
 
 	// 1. Input args (with seeking if specified)
 	inputArgs := buildInputArgs(params)
@@ -136,12 +144,31 @@ func BuildHLSCommand(params StreamParams) (*FFmpegCommand, error) {
 	}
 	args = append(args, qualityArgs...)
 
-	// 5. HLS output args
-	hlsArgs := buildHLSArgs(params)
-	args = append(args, hlsArgs...)
+	// 5. Stream segment mode specific args
+	if params.StreamSegmentMode {
+		// GOP alignment for deterministic segment boundaries
+		gopArgs := buildGOPArgs(params.FPS, params.SegmentDuration)
+		args = append(args, gopArgs...)
 
-	// 6. Output file
-	args = append(args, params.OutputPath)
+		// Force keyframes at segment boundaries
+		keyframeArgs := buildKeyframeArgs(params.SegmentDuration)
+		args = append(args, keyframeArgs...)
+
+		// Explicit stream mapping
+		mappingArgs := buildStreamMappingArgs()
+		args = append(args, mappingArgs...)
+
+		// Stream segment output args (includes output path)
+		segmentArgs := buildStreamSegmentArgs(params)
+		args = append(args, segmentArgs...)
+	} else {
+		// HLS output args
+		hlsArgs := buildHLSArgs(params)
+		args = append(args, hlsArgs...)
+
+		// Output file (playlist path)
+		args = append(args, params.OutputPath)
+	}
 
 	return &FFmpegCommand{Args: args}, nil
 }
@@ -186,6 +213,19 @@ func validateStreamParams(params StreamParams) error {
 	// Validate batch size when batch mode is enabled
 	if params.BatchMode && params.BatchSize <= 0 {
 		return ErrInvalidBatchSize
+	}
+
+	// Validate stream segment mode parameters
+	if params.StreamSegmentMode {
+		if params.SegmentOutputDir == "" {
+			return ErrEmptySegmentOutputDir
+		}
+		if params.SegmentFilenamePattern == "" {
+			return ErrEmptySegmentFilenamePattern
+		}
+		if params.FPS <= 0 {
+			return ErrInvalidFPS
+		}
 	}
 
 	return nil
@@ -300,6 +340,62 @@ func buildHLSArgs(params StreamParams) []string {
 	}
 
 	return args
+}
+
+// buildStreamSegmentArgs builds stream_segment muxer output arguments
+func buildStreamSegmentArgs(params StreamParams) []string {
+	// Build output path: {SegmentOutputDir}/{SegmentFilenamePattern}
+	outputPattern := filepath.Join(params.SegmentOutputDir, params.SegmentFilenamePattern)
+
+	args := []string{
+		"-f", "stream_segment",
+		"-segment_time", strconv.Itoa(params.SegmentDuration),
+		"-segment_format", "mpegts",
+		"-strftime", "1",
+		"-segment_atclocktime", "0", // Don't align to clock boundaries
+		"-reset_timestamps", "0", // Maintain timestamps
+		outputPattern,
+	}
+
+	// Add duration limit for batch mode (generates exactly BatchSize segments then exits)
+	if params.BatchMode && params.BatchSize > 0 {
+		totalSeconds := params.BatchSize * params.SegmentDuration
+		args = append(args, "-t", strconv.Itoa(totalSeconds))
+	}
+
+	return args
+}
+
+// buildGOPArgs builds GOP alignment arguments for deterministic segment boundaries
+func buildGOPArgs(fps int, segmentDuration int) []string {
+	if fps <= 0 {
+		fps = 30 // Default FPS if not provided
+	}
+	gopSize := fps * segmentDuration
+
+	return []string{
+		"-g", strconv.Itoa(gopSize),
+		"-keyint_min", strconv.Itoa(gopSize),
+		"-sc_threshold", "0", // Disable scene change detection, rely on forced keyframes
+	}
+}
+
+// buildKeyframeArgs builds keyframe forcing arguments
+func buildKeyframeArgs(segmentDuration int) []string {
+	// Force keyframe every segmentDuration seconds
+	// Expression: gte(t,n_forced*segmentDuration) means "greater than or equal to time t, where t >= n_forced * segmentDuration"
+	// This forces a keyframe at 0, segmentDuration, 2*segmentDuration, etc.
+	keyframeExpr := fmt.Sprintf("expr:gte(t,n_forced*%d)", segmentDuration)
+	return []string{"-force_key_frames", keyframeExpr}
+}
+
+// buildStreamMappingArgs builds explicit stream mapping arguments
+func buildStreamMappingArgs() []string {
+	// Map first video stream and first audio stream explicitly
+	return []string{
+		"-map", "0:v:0", // Map first video stream from first input
+		"-map", "0:a:0", // Map first audio stream from first input (if available)
+	}
 }
 
 // getSegmentFilenamePattern generates the segment filename pattern based on output path

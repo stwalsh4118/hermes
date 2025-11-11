@@ -2,6 +2,7 @@ package streaming
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -871,6 +872,152 @@ func TestBuildHLSCommand_BatchMode_ZeroSeekSeconds(t *testing.T) {
 
 	if !containsConsecutiveArgs(cmd.Args, "-t", "40") {
 		t.Error("Expected -t flag with duration 40 in batch mode")
+	}
+}
+
+// TestBuildHLSCommand_StreamSegmentMode tests stream_segment muxer mode
+func TestBuildHLSCommand_StreamSegmentMode(t *testing.T) {
+	params := StreamParams{
+		InputFile:             "/media/video.mp4",
+		OutputPath:            "/streams/channel1", // Not used in stream_segment mode, but required for validation
+		Quality:               Quality1080p,
+		HardwareAccel:         HardwareAccelNone,
+		SeekSeconds:           0,
+		SegmentDuration:       4, // 4 second segments
+		PlaylistSize:          10, // Not used in stream_segment mode, but required for validation
+		StreamSegmentMode:     true,
+		SegmentOutputDir:       "/streams/channel1/1080p",
+		SegmentFilenamePattern: "seg-%Y%m%dT%H%M%S.ts",
+		FPS:                   30,
+	}
+
+	cmd, err := BuildHLSCommand(params)
+	if err != nil {
+		t.Fatalf("BuildHLSCommand failed: %v", err)
+	}
+
+	if cmd == nil {
+		t.Fatal("Expected command, got nil")
+	}
+
+	// Verify stream_segment format is present
+	if !containsConsecutiveArgs(cmd.Args, "-f", "stream_segment") {
+		t.Error("Expected stream_segment format")
+	}
+
+	// Verify segment_time is 4 seconds
+	if !containsConsecutiveArgs(cmd.Args, "-segment_time", "4") {
+		t.Error("Expected segment_time 4")
+	}
+
+	// Verify segment_format is mpegts
+	if !containsConsecutiveArgs(cmd.Args, "-segment_format", "mpegts") {
+		t.Error("Expected segment_format mpegts")
+	}
+
+	// Verify strftime is enabled
+	if !containsConsecutiveArgs(cmd.Args, "-strftime", "1") {
+		t.Error("Expected strftime 1")
+	}
+
+	// Verify GOP alignment arguments are present
+	if !containsConsecutiveArgs(cmd.Args, "-g", "120") { // 30 fps * 4 seconds = 120
+		t.Error("Expected GOP size 120 (30 fps * 4 seconds)")
+	}
+
+	if !containsConsecutiveArgs(cmd.Args, "-keyint_min", "120") {
+		t.Error("Expected keyint_min 120")
+	}
+
+	if !containsConsecutiveArgs(cmd.Args, "-sc_threshold", "0") {
+		t.Error("Expected sc_threshold 0")
+	}
+
+	// Verify force_key_frames expression
+	keyframeIdx := findArgIndex(cmd.Args, "-force_key_frames")
+	if keyframeIdx == -1 {
+		t.Error("Expected force_key_frames flag")
+	} else if keyframeIdx+1 >= len(cmd.Args) {
+		t.Error("force_key_frames missing expression")
+	} else {
+		expr := cmd.Args[keyframeIdx+1]
+		if !strings.Contains(expr, "expr:gte(t,n_forced*4)") {
+			t.Errorf("Expected force_key_frames expression with 4 second interval, got: %s", expr)
+		}
+	}
+
+	// Verify stream mapping arguments
+	if !containsConsecutiveArgs(cmd.Args, "-map", "0:v:0") {
+		t.Error("Expected video stream mapping")
+	}
+
+	if !containsConsecutiveArgs(cmd.Args, "-map", "0:a:0") {
+		t.Error("Expected audio stream mapping")
+	}
+
+	// Verify output pattern includes the directory and filename pattern
+	outputPattern := "/streams/channel1/1080p/seg-%Y%m%dT%H%M%S.ts"
+	if !containsArg(cmd.Args, outputPattern) {
+		t.Errorf("Expected output pattern %s in args", outputPattern)
+	}
+
+	// Verify HLS-specific arguments are NOT present
+	if containsConsecutiveArgs(cmd.Args, "-f", "hls") {
+		t.Error("Did not expect HLS format in stream_segment mode")
+	}
+
+	if containsArg(cmd.Args, "-hls_time") {
+		t.Error("Did not expect hls_time flag in stream_segment mode")
+	}
+
+	if containsArg(cmd.Args, "-hls_list_size") {
+		t.Error("Did not expect hls_list_size flag in stream_segment mode")
+	}
+
+	// Verify no .m3u8 output path
+	if containsArg(cmd.Args, ".m3u8") {
+		t.Error("Did not expect .m3u8 playlist output in stream_segment mode")
+	}
+}
+
+// TestBuildHLSCommand_StreamSegmentMode_BatchMode tests stream_segment mode with batch mode
+func TestBuildHLSCommand_StreamSegmentMode_BatchMode(t *testing.T) {
+	params := StreamParams{
+		InputFile:             "/media/video.mp4",
+		OutputPath:            "/streams/channel1",
+		Quality:               Quality720p,
+		HardwareAccel:         HardwareAccelNVENC,
+		SeekSeconds:           3600,
+		SegmentDuration:       4,
+		PlaylistSize:          10,
+		EncodingPreset:        "ultrafast",
+		BatchMode:             true,
+		BatchSize:             20,
+		StreamSegmentMode:     true,
+		SegmentOutputDir:       "/streams/channel1/720p",
+		SegmentFilenamePattern: "seg-%Y%m%dT%H%M%S.ts",
+		FPS:                   30,
+	}
+
+	cmd, err := BuildHLSCommand(params)
+	if err != nil {
+		t.Fatalf("BuildHLSCommand failed: %v", err)
+	}
+
+	// Verify batch mode duration limit is present
+	expectedDuration := 20 * 4 // BatchSize * SegmentDuration
+	if !containsConsecutiveArgs(cmd.Args, "-t", strconv.Itoa(expectedDuration)) {
+		t.Errorf("Expected -t flag with duration %d in batch mode", expectedDuration)
+	}
+
+	// Verify no stream_loop in batch mode
+	if containsConsecutiveArgs(cmd.Args, "-stream_loop", "-1") {
+		t.Error("Did not expect stream_loop -1 in batch mode")
+	}
+
+	// Verify seek is present
+	if !containsConsecutiveArgs(cmd.Args, "-ss", "3600") {
+		t.Error("Expected -ss flag with seek position 3600")
 	}
 }
 
