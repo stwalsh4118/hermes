@@ -1059,6 +1059,7 @@ func (s *StreamSession) SetOutputDir(dir string)
 ```go
 func (s *StreamSession) SetCurrentBatch(batch *BatchState)
 func (s *StreamSession) GetCurrentBatch() *BatchState
+func (s *StreamSession) UpdateBatchCompletion(generationEnded time.Time, isComplete bool)
 func (s *StreamSession) ShouldGenerateNextBatch(threshold int) bool
 ```
 
@@ -1067,6 +1068,21 @@ Sets the current batch state. Can be set to `nil` to clear the current batch.
 
 **GetCurrentBatch:**
 Returns the current batch state. Returns `nil` if no batch is set.
+
+**UpdateBatchCompletion:**
+```go
+func (s *StreamSession) UpdateBatchCompletion(generationEnded time.Time, isComplete bool)
+```
+Updates the batch completion state atomically (thread-safe). Sets `GenerationEnded` timestamp and `IsComplete` flag for the current batch. Used by `monitorBatchCompletion` to mark batches as complete when FFmpeg process exits.
+
+**Parameters:**
+- `generationEnded` - Timestamp when batch generation completed
+- `isComplete` - Whether batch finished generating successfully
+
+**Thread Safety:**
+- Locks session mutex during update
+- Safe to call from goroutines
+- No-op if `CurrentBatch` is `nil`
 
 **ShouldGenerateNextBatch:**
 Determines if the next batch should be generated based on client positions and threshold.
@@ -1540,7 +1556,88 @@ Checks all active streams and triggers batch generation when threshold is reache
 ```go
 func (m *StreamManager) generateNextBatch(ctx context.Context, session *models.StreamSession) error
 ```
-Generates the next batch of segments for a stream session. Currently a stub implementation - full logic will be implemented in task 12-6. Logs batch generation need with channel ID and batch information.
+Generates the next batch of segments for a stream session with seamless continuation from the previous batch.
+
+**Process:**
+1. **Get Current Batch**: Retrieves current batch from session (thread-safe)
+2. **Handle First Batch**: If `currentBatch == nil`, calls `initializeFirstBatch()` to set up batch 0
+3. **Calculate Next Batch Parameters**:
+   - `nextBatchNumber = currentBatch.BatchNumber + 1`
+   - `nextStartSegment = currentBatch.EndSegment + 1`
+   - `nextEndSegment = nextStartSegment + BatchSize - 1`
+4. **Calculate Video Position**:
+   - `nextOffset = currentBatch.VideoStartOffset + (BatchSize * SegmentDuration)`
+   - Get video duration from Media repository using `GetByPath()`
+   - Handle video looping: `nextOffset = nextOffset % videoDuration` if batch crosses boundary
+5. **Check Video Boundary**: If batch crosses video boundary, wrap offset for looping (multi-video transitions handled via timeline service in future)
+6. **Build FFmpeg Command**: Create `StreamParams` with batch mode enabled:
+   - `BatchMode: true`, `BatchSize: config.BatchSize`
+   - `SeekSeconds: nextOffset`
+   - `RealtimePacing: false` (batch mode always uses fast encoding)
+7. **Launch FFmpeg Process**: Use `launchFFmpeg()` to start process
+8. **Create BatchState**: Initialize new batch with calculated parameters
+9. **Update Session**: Atomically update session with new batch state
+10. **Monitor Completion**: Launch `monitorBatchCompletion()` goroutine to track process exit
+
+**Error Handling:**
+- Missing current batch: Handled by `initializeFirstBatch()` for first batch
+- Media not found: Returns error with context
+- FFmpeg command build failure: Returns error, logged with batch context
+- FFmpeg launch failure: Returns error, logged with batch context
+- All errors logged with `channel_id` and batch number
+
+**initializeFirstBatch:**
+```go
+func (m *StreamManager) initializeFirstBatch(ctx context.Context, session *models.StreamSession) error
+```
+Initializes the first batch (batch 0) when no current batch exists.
+
+**Process:**
+1. Query timeline service to get current playback position
+2. Get playlist items with media details
+3. Find media file path for current position's MediaID
+4. Initialize batch 0:
+   - `BatchNumber: 0`
+   - `StartSegment: 0`
+   - `EndSegment: BatchSize - 1`
+   - `VideoStartOffset: position.OffsetSeconds`
+5. Build FFmpeg command and launch process
+6. Create BatchState and update session
+7. Launch `monitorBatchCompletion()` goroutine
+
+**monitorBatchCompletion:**
+```go
+func (m *StreamManager) monitorBatchCompletion(session *models.StreamSession, cmd *exec.Cmd, batch *models.BatchState)
+```
+Monitors FFmpeg process completion for a batch and updates batch state when process exits.
+
+**Process:**
+1. Wait for FFmpeg process to exit using `cmd.Wait()`
+2. Update batch state atomically:
+   - Set `GenerationEnded: time.Now()`
+   - Set `IsComplete: true`
+   - Uses `session.UpdateBatchCompletion()` for thread-safe update
+3. Log completion or error:
+   - **Success**: Log batch completion with generation time
+   - **Error**: Log error with batch context, update session error state
+4. Handle errors gracefully: Log but don't crash (retry logic handled in future task)
+
+**Thread Safety:**
+- Batch state updates use `session.UpdateBatchCompletion()` which locks session mutex
+- Process monitoring runs in goroutine (non-blocking)
+- Multiple batches can be monitored concurrently for different streams
+
+**Video Looping:**
+- Single-video playlists: Uses modulo operation (`nextOffset % videoDuration`)
+- Multi-video playlists: Timeline service integration for transitions (enhanced in future)
+- Batch boundaries handle video loops seamlessly
+- Segment numbering continues across batch boundaries
+
+**Batch Continuation:**
+- Next batch starts exactly where previous batch ended
+- Video position calculated from previous batch's `VideoStartOffset`
+- Segment numbering is continuous (no gaps)
+- FFmpeg uses `-ss` flag for precise seeking to continuation point
 
 ### Errors
 
