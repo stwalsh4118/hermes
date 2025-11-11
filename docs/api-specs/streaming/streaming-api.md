@@ -2782,6 +2782,10 @@ type Manager interface {
     Write() error
     Close() error
     GetCurrentSegments() []string
+    GetLastSuccessfulWrite() *time.Time
+    GetWindowSize() uint
+    GetMaxDuration() float64
+    HealthCheck(staleThreshold time.Duration) HealthStatus
 }
 
 type SegmentMeta struct {
@@ -2790,9 +2794,18 @@ type SegmentMeta struct {
     ProgramDateTime *time.Time // Optional program date-time
     Discontinuity   bool       // Whether to insert discontinuity before this segment
 }
+
+type HealthStatus struct {
+    Healthy            bool          // Whether the playlist is healthy
+    LastWriteTime      *time.Time    // Last successful write timestamp
+    TimeSinceLastWrite time.Duration // Time elapsed since last write
+    WindowSize         uint          // Current window size
+    MaxDuration        float64       // Maximum observed segment duration
+    StaleThreshold    time.Duration // Threshold for considering playlist stale
+}
 ```
 
-Manages a sliding-window HLS media playlist with automatic pruning and atomic writes.
+Manages a sliding-window HLS media playlist with automatic pruning and atomic writes. Provides observability metrics and health checking.
 
 ### NewManager
 
@@ -2891,6 +2904,61 @@ currentSegments := pm.GetCurrentSegments()
 // Returns: []string{"seg-001.ts", "seg-002.ts", ...}
 ```
 
+### GetLastSuccessfulWrite
+
+```go
+func (m Manager) GetLastSuccessfulWrite() *time.Time
+```
+
+Returns the timestamp of the last successful playlist write. Used for health checks and observability.
+
+**Returns:**
+- `*time.Time`: Timestamp of last successful write, or `nil` if no write has occurred
+
+### GetWindowSize
+
+```go
+func (m Manager) GetWindowSize() uint
+```
+
+Returns the current window size (number of segments in playlist).
+
+**Returns:**
+- `uint`: Current number of segments in the playlist window
+
+### GetMaxDuration
+
+```go
+func (m Manager) GetMaxDuration() float64
+```
+
+Returns the maximum observed segment duration.
+
+**Returns:**
+- `float64`: Maximum segment duration in seconds
+
+### HealthCheck
+
+```go
+func (m Manager) HealthCheck(staleThreshold time.Duration) HealthStatus
+```
+
+Checks the health of the playlist manager based on last successful write. A playlist is considered unhealthy if no write has occurred within `staleThreshold` duration.
+
+**Parameters:**
+- `staleThreshold`: Duration threshold for considering playlist stale (e.g., `10 * time.Second`)
+
+**Returns:**
+- `HealthStatus`: Health status with window size, max duration, and time since last write
+
+**Usage:**
+```go
+status := pm.HealthCheck(10 * time.Second)
+if !status.Healthy {
+    // Playlist is stale
+}
+```
+
 ## Segment Watcher
 
 Location: `internal/streaming/playlist/watcher.go`
@@ -2904,6 +2972,19 @@ type Watcher interface {
     MarkDiscontinuity() // Signal encoder restart - next segment will have discontinuity tag
 }
 ```
+
+### Observability
+
+The watcher logs structured metrics for each segment detection:
+- `segment_uri`: Segment filename
+- `segment_duration`: Duration in seconds
+- `cadence_ms`: Time since last segment detection (milliseconds)
+- `write_latency_ms`: Playlist write latency (milliseconds)
+- `total_latency_ms`: Total detection-to-write latency
+
+Warnings are logged when:
+- Segment cadence is slower than expected (>2x segment duration)
+- Playlist write latency exceeds 100ms
 
 Watches a directory for new TS segments and notifies the playlist manager. Automatically prunes old segments beyond `(window + safetyBuffer)`. Detects timestamp regressions and signals discontinuities.
 
