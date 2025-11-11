@@ -27,6 +27,8 @@ var (
 
 // launchFFmpeg launches an FFmpeg process with the given command
 func launchFFmpeg(cmd *FFmpegCommand) (*exec.Cmd, error) {
+	launchStartTime := time.Now()
+
 	if cmd == nil || len(cmd.Args) == 0 {
 		return nil, errors.New("invalid FFmpeg command")
 	}
@@ -46,9 +48,12 @@ func launchFFmpeg(cmd *FFmpegCommand) (*exec.Cmd, error) {
 	}
 
 	// Start the process
+	startTime := time.Now()
 	if err := execCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start FFmpeg: %w", err)
 	}
+	startLatencyMs := time.Since(startTime).Milliseconds()
+	totalLaunchLatencyMs := time.Since(launchStartTime).Milliseconds()
 
 	// Capture output in background goroutines
 	go captureFFmpegOutput(execCmd.Process.Pid, stdout, "stdout")
@@ -57,6 +62,9 @@ func launchFFmpeg(cmd *FFmpegCommand) (*exec.Cmd, error) {
 	logger.Log.Info().
 		Int("pid", execCmd.Process.Pid).
 		Strs("args", cmd.Args[:minInt(5, len(cmd.Args))]).
+		Int64("start_latency_ms", startLatencyMs).
+		Int64("total_launch_latency_ms", totalLaunchLatencyMs).
+		Time("launch_time", time.Now()).
 		Msg("FFmpeg process launched")
 
 	return execCmd, nil
@@ -64,6 +72,8 @@ func launchFFmpeg(cmd *FFmpegCommand) (*exec.Cmd, error) {
 
 // terminateProcess terminates a process gracefully (SIGTERM) then forcefully (SIGKILL) if needed
 func terminateProcess(pid int) error {
+	terminateStartTime := time.Now()
+
 	if pid <= 0 {
 		return ErrProcessNotFound
 	}
@@ -100,8 +110,10 @@ func terminateProcess(pid int) error {
 	select {
 	case err := <-exitChan:
 		// Process exited gracefully
+		terminateLatencyMs := time.Since(terminateStartTime).Milliseconds()
 		logger.Log.Info().
 			Int("pid", pid).
+			Int64("terminate_latency_ms", terminateLatencyMs).
 			Msg("FFmpeg process terminated gracefully")
 		return err
 	case <-time.After(terminationTimeout):
@@ -124,11 +136,19 @@ func terminateProcess(pid int) error {
 		// Wait for kill to take effect
 		select {
 		case <-exitChan:
+			terminateLatencyMs := time.Since(terminateStartTime).Milliseconds()
 			logger.Log.Info().
 				Int("pid", pid).
+				Int64("terminate_latency_ms", terminateLatencyMs).
 				Msg("FFmpeg process killed")
 			return nil
 		case <-time.After(killTimeout):
+			terminateLatencyMs := time.Since(terminateStartTime).Milliseconds()
+			logger.Log.Error().
+				Int("pid", pid).
+				Int64("terminate_latency_ms", terminateLatencyMs).
+				Dur("kill_timeout", killTimeout).
+				Msg("FFmpeg process did not die after SIGKILL")
 			return fmt.Errorf("%w: process %d did not die after SIGKILL", ErrProcessTimeout, pid)
 		}
 	}

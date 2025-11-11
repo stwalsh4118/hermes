@@ -720,10 +720,14 @@ func (m *StreamManager) initializeFirstBatch(ctx context.Context, session *model
 func (m *StreamManager) monitorBatchCompletion(session *models.StreamSession, cmd *exec.Cmd, batch *models.BatchState) {
 	channelIDStr := session.ChannelID.String()
 
-	logger.Log.Debug().
+	logger.Log.Info().
 		Str("channel_id", channelIDStr).
 		Int("batch_number", batch.BatchNumber).
 		Int("ffmpeg_pid", cmd.Process.Pid).
+		Int("start_segment", batch.StartSegment).
+		Int("end_segment", batch.EndSegment).
+		Int("batch_size", batch.EndSegment-batch.StartSegment+1).
+		Time("generation_started", batch.GenerationStarted).
 		Msg("Monitoring batch completion")
 
 	// Wait for FFmpeg process to exit
@@ -731,6 +735,8 @@ func (m *StreamManager) monitorBatchCompletion(session *models.StreamSession, cm
 
 	// Update batch state atomically
 	generationEnded := time.Now()
+	generationDuration := generationEnded.Sub(batch.GenerationStarted)
+	generationDurationMs := generationDuration.Milliseconds()
 	session.UpdateBatchCompletion(generationEnded, true)
 
 	if err != nil {
@@ -740,7 +746,10 @@ func (m *StreamManager) monitorBatchCompletion(session *models.StreamSession, cm
 			Int("batch_number", batch.BatchNumber).
 			Int("start_segment", batch.StartSegment).
 			Int("end_segment", batch.EndSegment).
-			Dur("generation_time", generationEnded.Sub(batch.GenerationStarted)).
+			Int64("generation_time_ms", generationDurationMs).
+			Dur("generation_time", generationDuration).
+			Time("generation_started", batch.GenerationStarted).
+			Time("generation_ended", generationEnded).
 			Msg("Batch generation failed")
 
 		// Update session error state
@@ -752,7 +761,11 @@ func (m *StreamManager) monitorBatchCompletion(session *models.StreamSession, cm
 			Int("batch_number", batch.BatchNumber).
 			Int("start_segment", batch.StartSegment).
 			Int("end_segment", batch.EndSegment).
-			Dur("generation_time", generationEnded.Sub(batch.GenerationStarted)).
+			Int("batch_size", batch.EndSegment-batch.StartSegment+1).
+			Int64("generation_time_ms", generationDurationMs).
+			Dur("generation_time", generationDuration).
+			Time("generation_started", batch.GenerationStarted).
+			Time("generation_ended", generationEnded).
 			Msg("Batch generation completed successfully")
 
 		// Clean up old batches (N-2) after successful completion
@@ -807,9 +820,11 @@ func (m *StreamManager) performCleanup() {
 // monitorFFmpegProcess monitors an FFmpeg process and handles crashes
 func (m *StreamManager) monitorFFmpegProcess(channelID uuid.UUID, cmd interface{}) {
 	channelIDStr := channelID.String()
+	monitorStartTime := time.Now()
 
-	logger.Log.Debug().
+	logger.Log.Info().
 		Str("channel_id", channelIDStr).
+		Time("monitor_start_time", monitorStartTime).
 		Msg("FFmpeg process monitor started")
 
 	// Type assert to exec.Cmd
@@ -823,6 +838,8 @@ func (m *StreamManager) monitorFFmpegProcess(channelID uuid.UUID, cmd interface{
 
 	// Wait for process to exit
 	err := execCmd.Wait()
+	processExitTime := time.Now()
+	processRuntimeMs := processExitTime.Sub(monitorStartTime).Milliseconds()
 
 	// Get session to check if stop was intentional
 	session, exists := m.sessionManager.Get(channelIDStr)
@@ -850,6 +867,8 @@ func (m *StreamManager) monitorFFmpegProcess(channelID uuid.UUID, cmd interface{
 			Err(err).
 			Str("channel_id", channelIDStr).
 			Int("ffmpeg_pid", session.GetFFmpegPID()).
+			Int64("process_runtime_ms", processRuntimeMs).
+			Time("process_exit_time", processExitTime).
 			Msg("FFmpeg process crashed unexpectedly")
 
 		// Update session state and error tracking
@@ -891,6 +910,9 @@ func (m *StreamManager) monitorFFmpegProcess(channelID uuid.UUID, cmd interface{
 		// Process exited cleanly - video finished playing
 		logger.Log.Info().
 			Str("channel_id", channelIDStr).
+			Int("ffmpeg_pid", session.GetFFmpegPID()).
+			Int64("process_runtime_ms", processRuntimeMs).
+			Time("process_exit_time", processExitTime).
 			Msg("FFmpeg process completed video successfully")
 
 		// Check if we have any active clients
