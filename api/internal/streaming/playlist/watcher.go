@@ -47,6 +47,7 @@ type segmentWatcher struct {
 	pendingNotifications map[string]time.Time // filename -> first seen time
 	stopped              bool
 	lastSegmentTime      *time.Time // Track last segment's ProgramDateTime for regression detection
+	lastSegmentDetected  *time.Time // Track last segment detection time for cadence calculation
 }
 
 // NewWatcher creates a new segment watcher instance
@@ -319,6 +320,8 @@ func (sw *segmentWatcher) processPendingNotifications() {
 
 // notifyNewSegment notifies the playlist manager about a new segment
 func (sw *segmentWatcher) notifyNewSegment(filename string, modTime time.Time) {
+	detectionStartTime := time.Now()
+
 	// Create segment metadata
 	seg := SegmentMeta{
 		URI:      filename,
@@ -329,14 +332,22 @@ func (sw *segmentWatcher) notifyNewSegment(filename string, modTime time.Time) {
 	programDateTime := modTime.UTC()
 	seg.ProgramDateTime = &programDateTime
 
-	// Check for timestamp regression (PTS regression detection)
+	// Calculate cadence (time since last segment detection)
+	var cadenceMs int64
 	sw.mu.Lock()
+	if sw.lastSegmentDetected != nil {
+		cadenceMs = detectionStartTime.Sub(*sw.lastSegmentDetected).Milliseconds()
+	}
+	// Update last segment detection time
+	sw.lastSegmentDetected = &detectionStartTime
+
+	// Check for timestamp regression (PTS regression detection)
 	if sw.lastSegmentTime != nil {
 		// Compare new segment time with last segment time
 		if programDateTime.Before(*sw.lastSegmentTime) {
 			// Timestamp regression detected - signal discontinuity
 			logger.Log.Info().
-				Str("filename", filename).
+				Str("segment_uri", filename).
 				Time("previous_time", *sw.lastSegmentTime).
 				Time("current_time", programDateTime).
 				Msg("Timestamp regression detected, marking discontinuity")
@@ -351,24 +362,47 @@ func (sw *segmentWatcher) notifyNewSegment(filename string, modTime time.Time) {
 	if err := sw.playlistManager.AddSegment(seg); err != nil {
 		logger.Log.Error().
 			Err(err).
-			Str("filename", filename).
+			Str("segment_uri", filename).
+			Float64("segment_duration", sw.segmentDuration).
+			Int64("cadence_ms", cadenceMs).
 			Msg("Failed to add segment to playlist")
 		return
 	}
 
-	// Write playlist
+	// Write playlist and measure latency
+	writeStartTime := time.Now()
 	if err := sw.playlistManager.Write(); err != nil {
+		writeLatencyMs := time.Since(writeStartTime).Milliseconds()
 		logger.Log.Error().
 			Err(err).
-			Str("filename", filename).
+			Str("segment_uri", filename).
+			Float64("segment_duration", sw.segmentDuration).
+			Int64("cadence_ms", cadenceMs).
+			Int64("write_latency_ms", writeLatencyMs).
 			Msg("Failed to write playlist after adding segment")
 		return
 	}
+	writeLatencyMs := time.Since(writeStartTime).Milliseconds()
+	totalLatencyMs := time.Since(detectionStartTime).Milliseconds()
 
-	logger.Log.Debug().
-		Str("filename", filename).
-		Float64("duration", sw.segmentDuration).
-		Msg("New segment detected and added to playlist")
+	// Log segment detection with observability metrics
+	logger.Log.Info().
+		Str("segment_uri", filename).
+		Float64("segment_duration", sw.segmentDuration).
+		Int64("cadence_ms", cadenceMs).
+		Int64("write_latency_ms", writeLatencyMs).
+		Int64("total_latency_ms", totalLatencyMs).
+		Msg("Segment detected and playlist updated")
+
+	// Warn if cadence is unusually slow (more than 2x expected segment duration)
+	expectedCadenceMs := int64(sw.segmentDuration * 1000)
+	if cadenceMs > 0 && cadenceMs > expectedCadenceMs*2 {
+		logger.Log.Warn().
+			Str("segment_uri", filename).
+			Int64("cadence_ms", cadenceMs).
+			Int64("expected_cadence_ms", expectedCadenceMs).
+			Msg("Segment cadence slower than expected")
+	}
 }
 
 // runPruning runs the periodic pruning goroutine
@@ -497,9 +531,11 @@ func (sw *segmentWatcher) pruneOldSegments() {
 	}
 
 	if deletedCount > 0 {
-		logger.Log.Debug().
+		logger.Log.Info().
 			Int("deleted", deletedCount).
 			Int("threshold", pruneThreshold).
+			Uint("window_size", sw.windowSize).
+			Uint("safety_buffer", sw.safetyBuffer).
 			Str("segment_dir", sw.segmentDir).
 			Msg("Pruned old segments")
 	}
@@ -515,6 +551,8 @@ func (sw *segmentWatcher) MarkDiscontinuity() {
 
 	// Reset last segment time to allow fresh start after restart
 	sw.lastSegmentTime = nil
+	// Reset cadence tracking since encoder restarted
+	sw.lastSegmentDetected = nil
 
 	logger.Log.Info().
 		Str("segment_dir", sw.segmentDir).
