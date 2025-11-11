@@ -2769,6 +2769,110 @@ case ErrorTypeFileMissing, ErrorTypeFileCorrupt:
 7. **Alert on circuit breaker trips (production)**
 8. **Track recovery success rate metrics**
 
+## Playlist Manager (Sliding Window)
+
+Location: `internal/streaming/playlist/manager.go`
+
+### Manager Interface
+
+```go
+type Manager interface {
+    AddSegment(seg SegmentMeta) error
+    SetDiscontinuityNext()
+    Write() error
+    Close() error
+}
+
+type SegmentMeta struct {
+    URI             string     // Segment filename (e.g., "seg-20250111T120000.ts")
+    Duration        float64    // Segment duration in seconds (typically 4.0)
+    ProgramDateTime *time.Time // Optional program date-time
+    Discontinuity   bool       // Whether to insert discontinuity before this segment
+}
+```
+
+Manages a sliding-window HLS media playlist with automatic pruning and atomic writes.
+
+### NewManager
+
+```go
+func NewManager(windowSize uint, outputPath string, initialTargetDuration float64) (Manager, error)
+```
+
+Creates a new playlist manager with specified window size and output path.
+
+**Parameters:**
+- `windowSize`: Number of segments to keep in sliding window (must be > 0)
+- `outputPath`: Full path to output `.m3u8` file
+- `initialTargetDuration`: Initial target duration in seconds (must be > 0)
+
+**Returns:**
+- `Manager`: Playlist manager instance
+- `error`: Validation errors
+
+### AddSegment
+
+```go
+func (m Manager) AddSegment(seg SegmentMeta) error
+```
+
+Adds a segment to the playlist. Automatically handles sliding window pruning and updates target duration.
+
+**Behavior:**
+- Updates `TARGETDURATION` to `ceil(max observed segment duration)`
+- Inserts `#EXT-X-DISCONTINUITY` if flagged
+- Automatically prunes segments beyond window size
+- Updates `#EXT-X-MEDIA-SEQUENCE` when segments are pruned
+
+### SetDiscontinuityNext
+
+```go
+func (m Manager) SetDiscontinuityNext()
+```
+
+Flags the next segment to have a discontinuity tag inserted before it.
+
+### Write
+
+```go
+func (m Manager) Write() error
+```
+
+Writes the playlist to disk atomically using temp file + rename pattern.
+
+**Thread Safety:**
+- Thread-safe (uses mutex)
+- Releases lock during file I/O to avoid blocking
+
+### Close
+
+```go
+func (m Manager) Close() error
+```
+
+Performs final write and cleanup.
+
+**Usage:**
+```go
+pm, err := playlist.NewManager(6, "/streams/channel1/playlist.m3u8", 4.0)
+if err != nil {
+    return err
+}
+defer pm.Close()
+
+// Add segments
+err = pm.AddSegment(playlist.SegmentMeta{
+    URI:      "seg-001.ts",
+    Duration: 4.0,
+})
+if err != nil {
+    return err
+}
+
+// Write playlist
+err = pm.Write()
+```
+
 ## Service Interfaces
 
 To be defined during implementation.
