@@ -14,7 +14,7 @@ This document lists all tasks associated with PBI 13.
 | 13-4 | [Segment Watcher and pruning](./13-4.md) | Proposed | Detect new segments and prune beyond (window + safety) |
 | 13-5 | [Discontinuity detection and tagging](./13-5.md) | Done | Insert #EXT-X-DISCONTINUITY on encoder restarts/timestamp regressions |
 | 13-6 | [Observability for HLS pipeline](./13-6.md) | Done | Add logs/metrics for cadence, drift, window length, last update time |
-| 13-7 | [Update infrastructure API specs](./13-7.md) | Proposed | Document PlaylistManager interfaces in infrastructure API spec |
+| 13-7 | [Update infrastructure API specs](./13-7.md) | Done | Document PlaylistManager interfaces in infrastructure API spec |
 | 13-8 | [Unit and Integration Tests](./13-8.md) | Proposed | Test playlist window logic and end-to-end pipeline behavior |
 | 13-9 | [E2E CoS Test](./13-9.md) | Proposed | Verify PBI acceptance criteria with an end-to-end test plan |
 

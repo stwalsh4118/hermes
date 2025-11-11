@@ -1,6 +1,6 @@
 # Infrastructure API
 
-Last Updated: 2025-10-27 (Development Tools and Linting added)
+Last Updated: 2025-01-11 (HLS Playlist Infrastructure added)
 
 ## Database Migrations
 
@@ -700,6 +700,185 @@ Enabled linters include:
 5. Coverage >80% for new code
 
 See `api/DEVELOPMENT.md` for detailed guide.
+
+## HLS Playlist Infrastructure
+
+### Playlist Manager
+
+Location: `internal/streaming/playlist/manager.go`
+
+Manages a sliding-window HLS media playlist with automatic pruning and atomic writes. Provides observability metrics and health checking.
+
+**Manager Interface:**
+```go
+type Manager interface {
+    AddSegment(seg SegmentMeta) error
+    SetDiscontinuityNext()
+    Write() error
+    Close() error
+    GetCurrentSegments() []string
+    GetLastSuccessfulWrite() *time.Time
+    GetWindowSize() uint
+    GetMaxDuration() float64
+    HealthCheck(staleThreshold time.Duration) HealthStatus
+}
+```
+
+**Data Structures:**
+```go
+type SegmentMeta struct {
+    URI             string     // Segment filename (e.g., "seg-20250111T120000.ts")
+    Duration        float64    // Segment duration in seconds (typically 4.0)
+    ProgramDateTime *time.Time // Optional program date-time
+    Discontinuity   bool       // Whether to insert discontinuity before this segment
+}
+
+type HealthStatus struct {
+    Healthy            bool          // Whether the playlist is healthy
+    LastWriteTime      *time.Time    // Last successful write timestamp
+    TimeSinceLastWrite time.Duration // Time elapsed since last write
+    WindowSize         uint          // Current window size
+    MaxDuration        float64       // Maximum observed segment duration
+    StaleThreshold     time.Duration // Threshold for considering playlist stale
+}
+```
+
+**Creating Manager:**
+```go
+func NewManager(windowSize uint, outputPath string, initialTargetDuration float64) (Manager, error)
+```
+
+Creates a new playlist manager with specified window size and output path.
+
+**Parameters:**
+- `windowSize`: Number of segments to keep in sliding window (must be > 0)
+- `outputPath`: Full path to output `.m3u8` file
+- `initialTargetDuration`: Initial target duration in seconds (must be > 0)
+
+**Returns:**
+- `Manager`: Playlist manager instance
+- `error`: Validation errors
+
+**Key Operations:**
+- `AddSegment()`: Adds a segment to the playlist, automatically handles sliding window pruning and updates target duration
+- `SetDiscontinuityNext()`: Flags the next segment to have a discontinuity tag inserted before it
+- `Write()`: Writes the playlist to disk atomically using temp file + rename pattern (thread-safe)
+- `HealthCheck()`: Checks playlist health based on last successful write time
+
+**Usage Example:**
+```go
+import "github.com/stwalsh4118/hermes/internal/streaming/playlist"
+
+// Create manager
+manager, err := playlist.NewManager(6, "/streams/channel1/playlist.m3u8", 4.0)
+if err != nil {
+    return err
+}
+defer manager.Close()
+
+// Add segment
+seg := playlist.SegmentMeta{
+    URI:      "seg-20250111T120000.ts",
+    Duration: 4.0,
+}
+if err := manager.AddSegment(seg); err != nil {
+    return err
+}
+
+// Write playlist
+if err := manager.Write(); err != nil {
+    return err
+}
+
+// Check health
+status := manager.HealthCheck(30 * time.Second)
+if !status.Healthy {
+    log.Warn("Playlist is stale")
+}
+```
+
+**See Also:** [Streaming API - Playlist Manager](../streaming/streaming-api.md#playlist-manager-sliding-window) for detailed usage examples and streaming-specific documentation.
+
+### Segment Watcher
+
+Location: `internal/streaming/playlist/watcher.go`
+
+Watches a directory for new TS segments and notifies the playlist manager. Automatically prunes old segments beyond the window size plus safety buffer.
+
+**Watcher Interface:**
+```go
+type Watcher interface {
+    Start() error
+    Stop() error
+    MarkDiscontinuity() // Signal that encoder has restarted and next segment should have discontinuity tag
+}
+```
+
+**Creating Watcher:**
+```go
+func NewWatcher(
+    segmentDir string,
+    playlistManager Manager,
+    windowSize uint,
+    safetyBuffer uint,
+    pruneInterval time.Duration,
+    segmentDuration float64,
+    pollInterval time.Duration,
+) (Watcher, error)
+```
+
+Creates a new segment watcher instance.
+
+**Parameters:**
+- `segmentDir`: Directory path to watch for `.ts` files
+- `playlistManager`: Manager instance to notify on new segments
+- `windowSize`: Number of segments to keep in playlist window (must be > 0)
+- `safetyBuffer`: Segments beyond window to keep before pruning (default: 2)
+- `pruneInterval`: Interval between pruning operations (default: 30s)
+- `segmentDuration`: Expected segment duration in seconds (default: 4.0)
+- `pollInterval`: Polling interval if fsnotify unavailable (default: 1s)
+
+**Returns:**
+- `Watcher`: Watcher instance
+- `error`: Validation errors
+
+**Key Operations:**
+- `Start()`: Begins watching for new segments and starts pruning goroutine (uses fsnotify with polling fallback)
+- `Stop()`: Gracefully stops the watcher and waits for goroutines to finish
+- `MarkDiscontinuity()`: Signals that encoder has restarted and next segment should have discontinuity tag
+
+**Usage Example:**
+```go
+import "github.com/stwalsh4118/hermes/internal/streaming/playlist"
+
+// Create playlist manager
+manager, _ := playlist.NewManager(6, "/streams/channel1/playlist.m3u8", 4.0)
+
+// Create watcher
+watcher, err := playlist.NewWatcher(
+    "/streams/channel1/segments",
+    manager,
+    6,                    // windowSize
+    2,                    // safetyBuffer
+    30*time.Second,       // pruneInterval
+    4.0,                  // segmentDuration
+    1*time.Second,        // pollInterval
+)
+if err != nil {
+    return err
+}
+
+// Start watching
+if err := watcher.Start(); err != nil {
+    return err
+}
+defer watcher.Stop()
+
+// Mark discontinuity on encoder restart
+watcher.MarkDiscontinuity()
+```
+
+**See Also:** [Streaming API - Segment Watcher](../streaming/streaming-api.md#segment-watcher) for detailed usage examples and streaming-specific documentation.
 
 ## Best Practices
 
