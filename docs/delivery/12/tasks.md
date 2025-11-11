@@ -16,7 +16,7 @@ This document lists all tasks associated with PBI 12.
 | 12-6 | [Implement batch continuation logic](./12-6.md) | Done | Add seamless batch-to-batch continuation with video position calculation and timeline service integration |
 | 12-7 | [Update cleanup for batch-aware operation](./12-7.md) | Done | Modify segment cleanup to keep N-1 batch during transitions, delete N-2 batch after completion |
 | 12-8 | [Remove legacy realtime pacing mode](./12-8.md) | Done | Remove RealtimePacing config option and continuous stream monitoring code |
-| 12-9 | [Update frontend for position reporting](./12-9.md) | Proposed | Add position reporting to HLS player component that sends current segment every N seconds |
+| 12-9 | [Update frontend for position reporting](./12-9.md) | Done | Add position reporting to HLS player component that sends current segment every N seconds |
 | 12-10 | [Create integration tests for batch system](./12-10.md) | Proposed | Implement integration tests for batch generation, position tracking, triggering, and continuation |
 
 

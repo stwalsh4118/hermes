@@ -1732,6 +1732,7 @@ interface VideoPlayerProps {
 - Proper HLS instance cleanup on unmount
 - Exposed video ref for custom controls integration
 - Built-in video controls
+- Position reporting: Sends playback position to backend every 5 seconds for batch generation
 
 **Browser Detection Logic:**
 1. Check `Hls.isSupported()` for HLS.js compatibility
@@ -1788,6 +1789,15 @@ videoRef.current?.play();
 - "Autoplay blocked. Click to play." - Browser autoplay policy
 - "Your browser doesn't support HLS streaming." - Unsupported browser
 - "Failed to load video stream." - Safari native HLS errors
+
+**Position Reporting:**
+Automatically reports playback position to backend for just-in-time batch generation:
+- Reports every 5 seconds while video is playing
+- Calculates segment number from `video.currentTime / SEGMENT_DURATION` (2 seconds)
+- Detects current quality from HLS.js levels (1080p, 720p, 480p)
+- Sends POST to `/api/stream/:channel_id/position` with `session_id`, `segment_number`, `quality`, `timestamp`
+- Stops reporting on pause/stop/unmount
+- Errors are logged but don't interrupt playback (best-effort)
 
 **Cleanup:**
 The component properly destroys the HLS instance on unmount to prevent memory leaks:
