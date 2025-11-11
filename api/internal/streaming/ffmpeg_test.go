@@ -679,36 +679,10 @@ func TestBuildHLSCommand_BatchMode(t *testing.T) {
 		t.Error("Expected -t flag with duration 40 in batch mode")
 	}
 
-	// Verify -re flag is NOT present even if RealtimePacing would be true
-	// Batch mode always uses fast encoding
+	// Verify -re flag is NOT present in batch mode
+	// Batch mode always uses fast encoding (no -re flag)
 	if containsArg(cmd.Args, "-re") {
 		t.Error("Did not expect -re flag in batch mode")
-	}
-}
-
-// TestBuildHLSCommand_BatchMode_WithRealtimePacing tests that batch mode excludes -re even if RealtimePacing is true
-func TestBuildHLSCommand_BatchMode_WithRealtimePacing(t *testing.T) {
-	params := StreamParams{
-		InputFile:       "/media/video.mp4",
-		OutputPath:      "/streams/channel1/1080p.m3u8",
-		Quality:         Quality1080p,
-		HardwareAccel:   HardwareAccelNone,
-		SeekSeconds:     0,
-		SegmentDuration: 2,
-		PlaylistSize:    10,
-		RealtimePacing:  true, // Set to true but should be ignored in batch mode
-		BatchMode:       true,
-		BatchSize:       20,
-	}
-
-	cmd, err := BuildHLSCommand(params)
-	if err != nil {
-		t.Fatalf("BuildHLSCommand failed: %v", err)
-	}
-
-	// Verify -re flag is NOT present in batch mode
-	if containsArg(cmd.Args, "-re") {
-		t.Error("Did not expect -re flag in batch mode, even when RealtimePacing is true")
 	}
 }
 

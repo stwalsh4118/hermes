@@ -235,7 +235,6 @@ func (m *StreamManager) StartStream(ctx context.Context, channelID uuid.UUID) (*
 		SeekSeconds:     offsetSeconds,
 		SegmentDuration: m.config.SegmentDuration,
 		PlaylistSize:    m.config.PlaylistSize,
-		RealtimePacing:  m.config.RealtimePacing,
 		EncodingPreset:  m.config.EncodingPreset,
 	}
 
@@ -540,7 +539,6 @@ func (m *StreamManager) generateNextBatch(ctx context.Context, session *models.S
 		SeekSeconds:     nextOffset,
 		SegmentDuration: m.config.SegmentDuration,
 		PlaylistSize:    m.config.PlaylistSize,
-		RealtimePacing:  false, // Batch mode never uses real-time pacing
 		EncodingPreset:  m.config.EncodingPreset,
 		BatchMode:       true,
 		BatchSize:       m.config.BatchSize,
@@ -663,7 +661,6 @@ func (m *StreamManager) initializeFirstBatch(ctx context.Context, session *model
 		SeekSeconds:     nextOffset,
 		SegmentDuration: m.config.SegmentDuration,
 		PlaylistSize:    m.config.PlaylistSize,
-		RealtimePacing:  false,
 		EncodingPreset:  m.config.EncodingPreset,
 		BatchMode:       true,
 		BatchSize:       m.config.BatchSize,

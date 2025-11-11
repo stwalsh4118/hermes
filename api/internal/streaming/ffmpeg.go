@@ -59,7 +59,6 @@ type StreamParams struct {
 	SeekSeconds     int64         // Starting position in seconds (0 = beginning)
 	SegmentDuration int           // HLS segment duration in seconds
 	PlaylistSize    int           // Number of segments to keep in playlist
-	RealtimePacing  bool          // Enable -re flag for 1x speed encoding
 	EncodingPreset  string        // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
 	BatchMode       bool          // Enable batch generation mode (generates N segments then exits)
 	BatchSize       int           // Number of segments to generate per batch (required when BatchMode is true)
@@ -195,12 +194,6 @@ func validateStreamParams(params StreamParams) error {
 // buildInputArgs builds input-related FFmpeg arguments
 func buildInputArgs(params StreamParams) []string {
 	args := make([]string, 0, 7)
-
-	// Add -re flag for real-time pacing only if not in batch mode
-	// Batch mode always uses fast encoding (no -re flag)
-	if params.RealtimePacing && !params.BatchMode {
-		args = append(args, "-re")
-	}
 
 	// Add seeking if specified (must come BEFORE input for fast seeking)
 	if params.SeekSeconds > 0 {
