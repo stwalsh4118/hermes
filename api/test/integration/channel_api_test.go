@@ -20,6 +20,7 @@ import (
 	"github.com/stwalsh4118/hermes/internal/api"
 	"github.com/stwalsh4118/hermes/internal/channel"
 	"github.com/stwalsh4118/hermes/internal/models"
+	"github.com/stwalsh4118/hermes/internal/timeline"
 )
 
 func TestChannelAPI(t *testing.T) {
@@ -29,12 +30,13 @@ func TestChannelAPI(t *testing.T) {
 
 	channelService := channel.NewChannelService(repos)
 	playlistService := channel.NewPlaylistService(database, repos)
+	timelineService := timeline.NewTimelineService(repos)
 
 	// Setup Gin router
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	apiGroup := router.Group("/api")
-	api.SetupChannelRoutes(apiGroup, channelService, playlistService)
+	api.SetupChannelRoutes(apiGroup, channelService, playlistService, timelineService)
 
 	t.Run("CreateChannel_Success", func(t *testing.T) {
 		startTime := time.Now().Add(-24 * time.Hour)
@@ -387,12 +389,13 @@ func TestPlaylistAPI(t *testing.T) {
 
 	channelService := channel.NewChannelService(repos)
 	playlistService := channel.NewPlaylistService(database, repos)
+	timelineService := timeline.NewTimelineService(repos)
 
 	// Setup Gin router
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	apiGroup := router.Group("/api")
-	api.SetupChannelRoutes(apiGroup, channelService, playlistService)
+	api.SetupChannelRoutes(apiGroup, channelService, playlistService, timelineService)
 
 	// Create test channel and media for use across tests
 	ctx := context.Background()
