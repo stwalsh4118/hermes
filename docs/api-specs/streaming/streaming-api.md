@@ -1618,9 +1618,14 @@ Monitors FFmpeg process completion for a batch and updates batch state when proc
    - Set `IsComplete: true`
    - Uses `session.UpdateBatchCompletion()` for thread-safe update
 3. Log completion or error:
-   - **Success**: Log batch completion with generation time
-   - **Error**: Log error with batch context, update session error state
+   - **Success**: Log batch completion with generation time, then call `cleanupOldBatches()` to remove N-2 batch segments
+   - **Error**: Log error with batch context, update session error state (no cleanup on failure - keeps previous batch)
 4. Handle errors gracefully: Log but don't crash (retry logic handled in future task)
+
+**Batch Cleanup:**
+- After successful batch completion, calls `cleanupOldBatches()` to remove segments from N-2 batch
+- Cleanup only happens on success (not on failure) to keep previous batch available if generation fails
+- See `cleanupOldBatches` documentation for details on cleanup strategy
 
 **Thread Safety:**
 - Batch state updates use `session.UpdateBatchCompletion()` which locks session mutex
@@ -1696,6 +1701,35 @@ func cleanupOrphanedDirectories(baseDir string, activeSessions []*models.StreamS
 ```
 
 Removes segment directories for channels that no longer have active streams.
+
+**cleanupOldBatches:**
+```go
+func cleanupOldBatches(session *models.StreamSession, batchSize int, outputDir string, quality string)
+```
+
+Removes segments from N-2 batch (two batches ago) after N batch completes successfully. This batch-aware cleanup strategy keeps N-1 batch available during N batch generation to prevent gaps if batch generation fails.
+
+**Behavior:**
+- Only cleans up when batch number >= 2 (need at least 2 batches before cleanup)
+- Calculates batch to delete: `batchToDelete = currentBatch.BatchNumber - 2`
+- Calculates segment range: `startSegment = batchToDelete * BatchSize`, `endSegment = startSegment + BatchSize - 1`
+- Handles segment filename wrapping (%03d pattern wraps at 1000): `filenameSegment = logicalSegment % 1000`
+- Deletes segment files in calculated range
+- Best-effort cleanup: file not found errors are ignored, other errors are logged but don't fail batch completion
+- Only called after successful batch completion (not on failure)
+
+**Cleanup Strategy:**
+- Current batch: N (generating)
+- Keep batch: N-1 (previous, still needed during generation)
+- Delete batch: N-2 (two batches ago, safe to delete after N completes)
+
+**Example:**
+With BatchSize=20:
+- Current batch: 5
+- Batch to delete: 3
+- Segment range: 60-79 (inclusive)
+- Segment 60 → `1080p_segment_060.ts`
+- Segment 1060 → `1080p_segment_060.ts` (wraps at 1000)
 
 ### Complete Usage Example
 
