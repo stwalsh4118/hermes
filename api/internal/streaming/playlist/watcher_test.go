@@ -3,6 +3,7 @@ package playlist
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -460,4 +461,313 @@ func TestWatcher_NonTSFilesIgnored(t *testing.T) {
 			assert.NotEqual(t, nonTS, seg, "non-TS file %s should not be added to playlist", nonTS)
 		}
 	}
+}
+
+func TestWatcher_TimestampRegression(t *testing.T) {
+	tmpDir := t.TempDir()
+	segmentDir := filepath.Join(tmpDir, "segments")
+	outputPath := filepath.Join(tmpDir, "playlist.m3u8")
+
+	pm, err := NewManager(6, outputPath, 4.0)
+	require.NoError(t, err)
+
+	watcher, err := NewWatcher(
+		segmentDir,
+		pm,
+		6,
+		2,
+		30*time.Second,
+		4.0,
+		50*time.Millisecond,
+	)
+	require.NoError(t, err)
+
+	// Start watcher
+	err = watcher.Start()
+	require.NoError(t, err)
+	defer func() {
+		_ = watcher.Stop()
+	}()
+
+	// Create first segment with time T0
+	t0 := time.Now().UTC()
+	segment1 := filepath.Join(segmentDir, "seg-001.ts")
+	err = os.WriteFile(segment1, []byte("test"), 0644)
+	require.NoError(t, err)
+	// Set modification time to T0
+	err = os.Chtimes(segment1, t0, t0)
+	require.NoError(t, err)
+
+	// Wait for processing
+	time.Sleep(200 * time.Millisecond)
+
+	// Create second segment with time T1 (after T0)
+	t1 := t0.Add(5 * time.Second)
+	segment2 := filepath.Join(segmentDir, "seg-002.ts")
+	err = os.WriteFile(segment2, []byte("test"), 0644)
+	require.NoError(t, err)
+	err = os.Chtimes(segment2, t1, t1)
+	require.NoError(t, err)
+
+	// Wait for processing
+	time.Sleep(200 * time.Millisecond)
+
+	// Create third segment with time T2 (before T1 - regression!)
+	t2 := t0.Add(2 * time.Second) // Earlier than t1
+	segment3 := filepath.Join(segmentDir, "seg-003.ts")
+	err = os.WriteFile(segment3, []byte("test"), 0644)
+	require.NoError(t, err)
+	err = os.Chtimes(segment3, t2, t2)
+	require.NoError(t, err)
+
+	// Wait for processing
+	time.Sleep(200 * time.Millisecond)
+
+	// Write playlist to check for discontinuity
+	err = pm.Write()
+	require.NoError(t, err)
+
+	// Read playlist content
+	content, err := os.ReadFile(outputPath)
+	require.NoError(t, err)
+
+	playlistStr := string(content)
+
+	// Should contain discontinuity tag (triggered by timestamp regression)
+	assert.Contains(t, playlistStr, "#EXT-X-DISCONTINUITY",
+		"playlist should contain discontinuity tag after timestamp regression")
+
+	// Verify discontinuity appears before seg-003.ts (the regressed segment)
+	discontinuityIndex := strings.Index(playlistStr, "#EXT-X-DISCONTINUITY")
+	seg003Index := strings.Index(playlistStr, "seg-003.ts")
+	assert.True(t, discontinuityIndex < seg003Index,
+		"discontinuity tag should appear before seg-003.ts (regressed segment)")
+}
+
+func TestWatcher_FirstSegmentNoDiscontinuity(t *testing.T) {
+	tmpDir := t.TempDir()
+	segmentDir := filepath.Join(tmpDir, "segments")
+	outputPath := filepath.Join(tmpDir, "playlist.m3u8")
+
+	pm, err := NewManager(6, outputPath, 4.0)
+	require.NoError(t, err)
+
+	watcher, err := NewWatcher(
+		segmentDir,
+		pm,
+		6,
+		2,
+		30*time.Second,
+		4.0,
+		50*time.Millisecond,
+	)
+	require.NoError(t, err)
+
+	// Start watcher
+	err = watcher.Start()
+	require.NoError(t, err)
+	defer func() {
+		_ = watcher.Stop()
+	}()
+
+	// Create first segment (no previous timestamp)
+	segment1 := filepath.Join(segmentDir, "seg-001.ts")
+	err = os.WriteFile(segment1, []byte("test"), 0644)
+	require.NoError(t, err)
+
+	// Wait for processing
+	time.Sleep(200 * time.Millisecond)
+
+	// Write playlist
+	err = pm.Write()
+	require.NoError(t, err)
+
+	// Read playlist content
+	content, err := os.ReadFile(outputPath)
+	require.NoError(t, err)
+
+	playlistStr := string(content)
+
+	// First segment should NOT have discontinuity (no previous timestamp to compare)
+	// Count discontinuity tags
+	discontinuityCount := strings.Count(playlistStr, "#EXT-X-DISCONTINUITY")
+	assert.Equal(t, 0, discontinuityCount,
+		"first segment should not have discontinuity tag")
+}
+
+func TestWatcher_NormalProgressionNoDiscontinuity(t *testing.T) {
+	tmpDir := t.TempDir()
+	segmentDir := filepath.Join(tmpDir, "segments")
+	outputPath := filepath.Join(tmpDir, "playlist.m3u8")
+
+	pm, err := NewManager(6, outputPath, 4.0)
+	require.NoError(t, err)
+
+	watcher, err := NewWatcher(
+		segmentDir,
+		pm,
+		6,
+		2,
+		30*time.Second,
+		4.0,
+		50*time.Millisecond,
+	)
+	require.NoError(t, err)
+
+	// Start watcher
+	err = watcher.Start()
+	require.NoError(t, err)
+	defer func() {
+		_ = watcher.Stop()
+	}()
+
+	// Create segments with normal progression (increasing timestamps)
+	baseTime := time.Now().UTC()
+	for i := 0; i < 3; i++ {
+		segmentTime := baseTime.Add(time.Duration(i) * 5 * time.Second)
+		filename := segmentName(i)
+		segmentFile := filepath.Join(segmentDir, filename)
+		err := os.WriteFile(segmentFile, []byte("test"), 0644)
+		require.NoError(t, err)
+		err = os.Chtimes(segmentFile, segmentTime, segmentTime)
+		require.NoError(t, err)
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Wait for processing
+	time.Sleep(300 * time.Millisecond)
+
+	// Write playlist
+	err = pm.Write()
+	require.NoError(t, err)
+
+	// Read playlist content
+	content, err := os.ReadFile(outputPath)
+	require.NoError(t, err)
+
+	playlistStr := string(content)
+
+	// Normal progression should NOT have discontinuity
+	discontinuityCount := strings.Count(playlistStr, "#EXT-X-DISCONTINUITY")
+	assert.Equal(t, 0, discontinuityCount,
+		"normal timestamp progression should not trigger discontinuity")
+}
+
+func TestWatcher_MarkDiscontinuity(t *testing.T) {
+	tmpDir := t.TempDir()
+	segmentDir := filepath.Join(tmpDir, "segments")
+	outputPath := filepath.Join(tmpDir, "playlist.m3u8")
+
+	pm, err := NewManager(6, outputPath, 4.0)
+	require.NoError(t, err)
+
+	watcher, err := NewWatcher(
+		segmentDir,
+		pm,
+		6,
+		2,
+		30*time.Second,
+		4.0,
+		50*time.Millisecond,
+	)
+	require.NoError(t, err)
+
+	// Add a segment first
+	err = pm.AddSegment(SegmentMeta{
+		URI:      "seg-001.ts",
+		Duration: 4.0,
+	})
+	require.NoError(t, err)
+
+	// Mark discontinuity (simulating encoder restart)
+	watcher.MarkDiscontinuity()
+
+	// Add next segment (should have discontinuity tag)
+	err = pm.AddSegment(SegmentMeta{
+		URI:      "seg-002.ts",
+		Duration: 4.0,
+	})
+	require.NoError(t, err)
+
+	// Write playlist
+	err = pm.Write()
+	require.NoError(t, err)
+
+	// Read playlist content
+	content, err := os.ReadFile(outputPath)
+	require.NoError(t, err)
+
+	playlistStr := string(content)
+
+	// Should contain discontinuity tag
+	assert.Contains(t, playlistStr, "#EXT-X-DISCONTINUITY",
+		"playlist should contain discontinuity tag after MarkDiscontinuity()")
+
+	// Verify discontinuity appears before seg-002.ts
+	discontinuityIndex := strings.Index(playlistStr, "#EXT-X-DISCONTINUITY")
+	seg002Index := strings.Index(playlistStr, "seg-002.ts")
+	assert.True(t, discontinuityIndex < seg002Index,
+		"discontinuity tag should appear before seg-002.ts")
+}
+
+func TestWatcher_MarkDiscontinuityResetsTimestamp(t *testing.T) {
+	tmpDir := t.TempDir()
+	segmentDir := filepath.Join(tmpDir, "segments")
+	outputPath := filepath.Join(tmpDir, "playlist.m3u8")
+
+	pm, err := NewManager(6, outputPath, 4.0)
+	require.NoError(t, err)
+
+	watcher, err := NewWatcher(
+		segmentDir,
+		pm,
+		6,
+		2,
+		30*time.Second,
+		4.0,
+		50*time.Millisecond,
+	)
+	require.NoError(t, err)
+
+	// Add first segment directly (simulating watcher behavior)
+	t0 := time.Now().UTC()
+	err = pm.AddSegment(SegmentMeta{
+		URI:             "seg-001.ts",
+		Duration:        4.0,
+		ProgramDateTime: &t0,
+	})
+	require.NoError(t, err)
+
+	// Mark discontinuity (simulating encoder restart)
+	watcher.MarkDiscontinuity()
+
+	// Add second segment with earlier timestamp (would normally trigger regression)
+	// But after MarkDiscontinuity(), timestamp tracking is reset, so this should be fine
+	t1 := t0.Add(-5 * time.Second) // Earlier than t0
+	err = pm.AddSegment(SegmentMeta{
+		URI:             "seg-002.ts",
+		Duration:        4.0,
+		ProgramDateTime: &t1,
+	})
+	require.NoError(t, err)
+
+	// Write playlist
+	err = pm.Write()
+	require.NoError(t, err)
+
+	// Read playlist content
+	content, err := os.ReadFile(outputPath)
+	require.NoError(t, err)
+
+	playlistStr := string(content)
+
+	// Should contain discontinuity tag (from MarkDiscontinuity, not regression)
+	assert.Contains(t, playlistStr, "#EXT-X-DISCONTINUITY",
+		"playlist should contain discontinuity tag from MarkDiscontinuity()")
+
+	// Verify discontinuity appears before seg-002.ts
+	discontinuityIndex := strings.Index(playlistStr, "#EXT-X-DISCONTINUITY")
+	seg002Index := strings.Index(playlistStr, "seg-002.ts")
+	assert.True(t, discontinuityIndex < seg002Index,
+		"discontinuity tag should appear before seg-002.ts")
 }

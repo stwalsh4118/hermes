@@ -25,6 +25,7 @@ const (
 type Watcher interface {
 	Start() error
 	Stop() error
+	MarkDiscontinuity() // Signal that encoder has restarted and next segment should have discontinuity tag
 }
 
 // segmentWatcher implements Watcher using fsnotify with polling fallback
@@ -45,6 +46,7 @@ type segmentWatcher struct {
 	mu                   sync.RWMutex
 	pendingNotifications map[string]time.Time // filename -> first seen time
 	stopped              bool
+	lastSegmentTime      *time.Time // Track last segment's ProgramDateTime for regression detection
 }
 
 // NewWatcher creates a new segment watcher instance
@@ -327,6 +329,24 @@ func (sw *segmentWatcher) notifyNewSegment(filename string, modTime time.Time) {
 	programDateTime := modTime.UTC()
 	seg.ProgramDateTime = &programDateTime
 
+	// Check for timestamp regression (PTS regression detection)
+	sw.mu.Lock()
+	if sw.lastSegmentTime != nil {
+		// Compare new segment time with last segment time
+		if programDateTime.Before(*sw.lastSegmentTime) {
+			// Timestamp regression detected - signal discontinuity
+			logger.Log.Info().
+				Str("filename", filename).
+				Time("previous_time", *sw.lastSegmentTime).
+				Time("current_time", programDateTime).
+				Msg("Timestamp regression detected, marking discontinuity")
+			sw.playlistManager.SetDiscontinuityNext()
+		}
+	}
+	// Update last segment time
+	sw.lastSegmentTime = &programDateTime
+	sw.mu.Unlock()
+
 	// Add segment to playlist
 	if err := sw.playlistManager.AddSegment(seg); err != nil {
 		logger.Log.Error().
@@ -483,4 +503,20 @@ func (sw *segmentWatcher) pruneOldSegments() {
 			Str("segment_dir", sw.segmentDir).
 			Msg("Pruned old segments")
 	}
+}
+
+// MarkDiscontinuity signals that the encoder has restarted and the next segment should have a discontinuity tag
+func (sw *segmentWatcher) MarkDiscontinuity() {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+
+	// Signal discontinuity to playlist manager
+	sw.playlistManager.SetDiscontinuityNext()
+
+	// Reset last segment time to allow fresh start after restart
+	sw.lastSegmentTime = nil
+
+	logger.Log.Info().
+		Str("segment_dir", sw.segmentDir).
+		Msg("Discontinuity marked for next segment (encoder restart)")
 }
