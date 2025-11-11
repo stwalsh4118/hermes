@@ -468,24 +468,296 @@ func (m *StreamManager) checkAndTriggerBatches() {
 }
 
 // generateNextBatch generates the next batch of segments for a stream session
-// This is a stub implementation - full logic will be implemented in task 12-6
 func (m *StreamManager) generateNextBatch(ctx context.Context, session *models.StreamSession) error {
+	channelID := session.ChannelID
+	channelIDStr := channelID.String()
+
+	// Get current batch from session
 	currentBatch := session.GetCurrentBatch()
+
+	// Handle first batch initialization (when currentBatch is nil)
 	if currentBatch == nil {
-		logger.Log.Debug().
-			Str("channel_id", session.ChannelID.String()).
-			Msg("No current batch to continue from")
-		return nil
+		return m.initializeFirstBatch(ctx, session)
 	}
 
-	logger.Log.Info().
-		Str("channel_id", session.ChannelID.String()).
-		Int("current_batch", currentBatch.BatchNumber).
-		Int("furthest_segment", session.GetFurthestPosition()).
-		Msg("Batch generation needed - stub implementation (full logic in task 12-6)")
+	// Calculate next batch parameters
+	nextBatchNumber := currentBatch.BatchNumber + 1
+	nextStartSegment := currentBatch.EndSegment + 1
+	nextEndSegment := nextStartSegment + m.config.BatchSize - 1
 
-	// Full implementation will be added in task 12-6
+	// Calculate video position for next batch
+	batchDurationSeconds := int64(m.config.BatchSize * m.config.SegmentDuration)
+	nextOffset := currentBatch.VideoStartOffset + batchDurationSeconds
+
+	// Get video duration for looping calculations
+	media, err := m.repos.Media.GetByPath(ctx, currentBatch.VideoSourcePath)
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelIDStr).
+			Str("video_path", currentBatch.VideoSourcePath).
+			Msg("Failed to get media duration for batch continuation")
+		return fmt.Errorf("failed to get media duration: %w", err)
+	}
+
+	videoDuration := media.Duration
+	nextVideoPath := currentBatch.VideoSourcePath
+
+	// Check if batch crosses video boundary
+	batchEndOffset := nextOffset + batchDurationSeconds
+	if batchEndOffset > videoDuration {
+		// Query timeline service to get next media file if batch crosses boundary
+		// For now, handle looping within same video (modulo operation)
+		// Timeline service integration for multi-video transitions will be enhanced in future
+		nextOffset %= videoDuration
+		if nextOffset < 0 {
+			nextOffset = 0
+		}
+		logger.Log.Debug().
+			Str("channel_id", channelIDStr).
+			Int64("original_offset", currentBatch.VideoStartOffset+batchDurationSeconds).
+			Int64("wrapped_offset", nextOffset).
+			Int64("video_duration", videoDuration).
+			Msg("Batch crosses video boundary, wrapping offset for looping")
+	} else if nextOffset >= videoDuration {
+		// Handle case where next offset exceeds video duration (shouldn't happen with above check, but be safe)
+		nextOffset %= videoDuration
+		if nextOffset < 0 {
+			nextOffset = 0
+		}
+	}
+
+	// Build StreamParams with batch mode enabled
+	outputDir := session.GetOutputDir()
+	quality := Quality1080p // Start with 1080p for now
+	outputPath := GetOutputPath(outputDir, quality)
+
+	params := StreamParams{
+		InputFile:       nextVideoPath,
+		OutputPath:      outputPath,
+		Quality:         quality,
+		HardwareAccel:   HardwareAccel(m.config.HardwareAccel),
+		SeekSeconds:     nextOffset,
+		SegmentDuration: m.config.SegmentDuration,
+		PlaylistSize:    m.config.PlaylistSize,
+		RealtimePacing:  false, // Batch mode never uses real-time pacing
+		EncodingPreset:  m.config.EncodingPreset,
+		BatchMode:       true,
+		BatchSize:       m.config.BatchSize,
+	}
+
+	// Build FFmpeg command
+	ffmpegCmd, err := BuildHLSCommand(params)
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelIDStr).
+			Int("batch_number", nextBatchNumber).
+			Msg("Failed to build FFmpeg command for batch")
+		return fmt.Errorf("failed to build FFmpeg command: %w", err)
+	}
+
+	// Launch FFmpeg process
+	execCmd, err := launchFFmpeg(ffmpegCmd)
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelIDStr).
+			Int("batch_number", nextBatchNumber).
+			Msg("Failed to launch FFmpeg process for batch")
+		return fmt.Errorf("failed to launch FFmpeg: %w", err)
+	}
+
+	// Create new BatchState
+	newBatch := &models.BatchState{
+		BatchNumber:       nextBatchNumber,
+		StartSegment:      nextStartSegment,
+		EndSegment:        nextEndSegment,
+		VideoSourcePath:   nextVideoPath,
+		VideoStartOffset:  nextOffset,
+		GenerationStarted: time.Now(),
+		IsComplete:        false,
+	}
+
+	// Update session with new batch (atomic update with lock)
+	session.SetCurrentBatch(newBatch)
+
+	// Launch monitorBatchCompletion goroutine
+	go m.monitorBatchCompletion(session, execCmd, newBatch)
+
+	logger.Log.Info().
+		Str("channel_id", channelIDStr).
+		Int("batch_number", nextBatchNumber).
+		Int("start_segment", nextStartSegment).
+		Int("end_segment", nextEndSegment).
+		Int64("video_offset", nextOffset).
+		Str("video_path", nextVideoPath).
+		Int("ffmpeg_pid", execCmd.Process.Pid).
+		Msg("Started generating next batch")
+
 	return nil
+}
+
+// initializeFirstBatch initializes the first batch when currentBatch is nil
+func (m *StreamManager) initializeFirstBatch(ctx context.Context, session *models.StreamSession) error {
+	channelID := session.ChannelID
+	channelIDStr := channelID.String()
+
+	logger.Log.Debug().
+		Str("channel_id", channelIDStr).
+		Msg("Initializing first batch")
+
+	// Query timeline service to get current position
+	position, err := m.timelineService.GetCurrentPosition(ctx, channelID)
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelIDStr).
+			Msg("Failed to get timeline position for first batch")
+		return fmt.Errorf("failed to get timeline position: %w", err)
+	}
+
+	// Get playlist items to find media file path
+	playlistItems, err := m.repos.PlaylistItems.GetWithMedia(ctx, channelID)
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelIDStr).
+			Msg("Failed to get playlist items for first batch")
+		return fmt.Errorf("failed to get playlist items: %w", err)
+	}
+
+	// Find media file for current position
+	var mediaFilePath string
+	for _, item := range playlistItems {
+		if item.MediaID == position.MediaID && item.Media != nil {
+			mediaFilePath = item.Media.FilePath
+			break
+		}
+	}
+
+	if mediaFilePath == "" {
+		logger.Log.Error().
+			Str("channel_id", channelIDStr).
+			Str("media_id", position.MediaID.String()).
+			Msg("Media file not found for first batch")
+		return fmt.Errorf("media file not found for media ID %s", position.MediaID.String())
+	}
+
+	// Initialize first batch
+	nextBatchNumber := 0
+	nextStartSegment := 0
+	nextEndSegment := m.config.BatchSize - 1
+	nextOffset := position.OffsetSeconds
+
+	// Build StreamParams with batch mode enabled
+	outputDir := session.GetOutputDir()
+	quality := Quality1080p
+	outputPath := GetOutputPath(outputDir, quality)
+
+	params := StreamParams{
+		InputFile:       mediaFilePath,
+		OutputPath:      outputPath,
+		Quality:         quality,
+		HardwareAccel:   HardwareAccel(m.config.HardwareAccel),
+		SeekSeconds:     nextOffset,
+		SegmentDuration: m.config.SegmentDuration,
+		PlaylistSize:    m.config.PlaylistSize,
+		RealtimePacing:  false,
+		EncodingPreset:  m.config.EncodingPreset,
+		BatchMode:       true,
+		BatchSize:       m.config.BatchSize,
+	}
+
+	// Build FFmpeg command
+	ffmpegCmd, err := BuildHLSCommand(params)
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelIDStr).
+			Msg("Failed to build FFmpeg command for first batch")
+		return fmt.Errorf("failed to build FFmpeg command: %w", err)
+	}
+
+	// Launch FFmpeg process
+	execCmd, err := launchFFmpeg(ffmpegCmd)
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelIDStr).
+			Msg("Failed to launch FFmpeg process for first batch")
+		return fmt.Errorf("failed to launch FFmpeg: %w", err)
+	}
+
+	// Create first BatchState
+	newBatch := &models.BatchState{
+		BatchNumber:       nextBatchNumber,
+		StartSegment:      nextStartSegment,
+		EndSegment:        nextEndSegment,
+		VideoSourcePath:   mediaFilePath,
+		VideoStartOffset:  nextOffset,
+		GenerationStarted: time.Now(),
+		IsComplete:        false,
+	}
+
+	// Update session with first batch
+	session.SetCurrentBatch(newBatch)
+
+	// Launch monitorBatchCompletion goroutine
+	go m.monitorBatchCompletion(session, execCmd, newBatch)
+
+	logger.Log.Info().
+		Str("channel_id", channelIDStr).
+		Int("batch_number", nextBatchNumber).
+		Int("start_segment", nextStartSegment).
+		Int("end_segment", nextEndSegment).
+		Int64("video_offset", nextOffset).
+		Str("video_path", mediaFilePath).
+		Int("ffmpeg_pid", execCmd.Process.Pid).
+		Msg("Initialized and started first batch")
+
+	return nil
+}
+
+// monitorBatchCompletion monitors FFmpeg process completion for a batch
+func (m *StreamManager) monitorBatchCompletion(session *models.StreamSession, cmd *exec.Cmd, batch *models.BatchState) {
+	channelIDStr := session.ChannelID.String()
+
+	logger.Log.Debug().
+		Str("channel_id", channelIDStr).
+		Int("batch_number", batch.BatchNumber).
+		Int("ffmpeg_pid", cmd.Process.Pid).
+		Msg("Monitoring batch completion")
+
+	// Wait for FFmpeg process to exit
+	err := cmd.Wait()
+
+	// Update batch state atomically
+	generationEnded := time.Now()
+	session.UpdateBatchCompletion(generationEnded, true)
+
+	if err != nil {
+		logger.Log.Error().
+			Err(err).
+			Str("channel_id", channelIDStr).
+			Int("batch_number", batch.BatchNumber).
+			Int("start_segment", batch.StartSegment).
+			Int("end_segment", batch.EndSegment).
+			Dur("generation_time", generationEnded.Sub(batch.GenerationStarted)).
+			Msg("Batch generation failed")
+
+		// Update session error state
+		session.IncrementErrorCount()
+		session.SetLastError(err)
+	} else {
+		logger.Log.Info().
+			Str("channel_id", channelIDStr).
+			Int("batch_number", batch.BatchNumber).
+			Int("start_segment", batch.StartSegment).
+			Int("end_segment", batch.EndSegment).
+			Dur("generation_time", generationEnded.Sub(batch.GenerationStarted)).
+			Msg("Batch generation completed successfully")
+	}
 }
 
 // performCleanup checks all sessions and stops idle ones past grace period
