@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package streaming
@@ -14,4 +15,3 @@ import (
 func TriggerFirstBatchForTest(manager *StreamManager, session *models.StreamSession) error {
 	return manager.generateNextBatch(context.Background(), session)
 }
-
