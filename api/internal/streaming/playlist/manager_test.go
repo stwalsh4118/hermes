@@ -544,6 +544,64 @@ func TestPlaylistManager_ProgramDateTime(t *testing.T) {
 		"playlist should contain formatted program date-time")
 }
 
+func TestPlaylistManager_GetCurrentSegments(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "playlist.m3u8")
+
+	windowSize := uint(6)
+	pm, err := NewManager(windowSize, outputPath, 4.0)
+	require.NoError(t, err)
+
+	// Initially, no segments
+	segments := pm.GetCurrentSegments()
+	assert.Empty(t, segments, "should have no segments initially")
+
+	// Add segments within window size
+	numSegments := 4
+	expectedSegments := make([]string, numSegments)
+	for i := 0; i < numSegments; i++ {
+		segName := segmentName(i)
+		expectedSegments[i] = segName
+		err := pm.AddSegment(SegmentMeta{
+			URI:      segName,
+			Duration: 4.0,
+		})
+		require.NoError(t, err)
+	}
+
+	// Get current segments
+	segments = pm.GetCurrentSegments()
+	assert.Equal(t, numSegments, len(segments), "should have %d segments", numSegments)
+	for i, expected := range expectedSegments {
+		assert.Equal(t, expected, segments[i], "segment %d should match", i)
+	}
+
+	// Add more segments beyond window size
+	for i := numSegments; i < 10; i++ {
+		err := pm.AddSegment(SegmentMeta{
+			URI:      segmentName(i),
+			Duration: 4.0,
+		})
+		require.NoError(t, err)
+	}
+
+	// Get current segments (should only have windowSize segments)
+	segments = pm.GetCurrentSegments()
+	assert.Equal(t, int(windowSize), len(segments), "should have only windowSize segments after pruning")
+
+	// Should contain the last windowSize segments (4-9)
+	for i := 0; i < int(windowSize); i++ {
+		expectedSeg := segmentName(10 - int(windowSize) + i)
+		assert.Contains(t, segments, expectedSeg, "should contain segment %s", expectedSeg)
+	}
+
+	// Should not contain pruned segments (0-3)
+	for i := 0; i < 10-int(windowSize); i++ {
+		prunedSeg := segmentName(i)
+		assert.NotContains(t, segments, prunedSeg, "should not contain pruned segment %s", prunedSeg)
+	}
+}
+
 // Helper functions
 
 func segmentName(index int) string {

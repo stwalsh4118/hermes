@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,7 @@ type Manager interface {
 	SetDiscontinuityNext()
 	Write() error
 	Close() error
+	GetCurrentSegments() []string
 }
 
 // playlistManager implements Manager using hls-m3u8 library
@@ -264,4 +266,36 @@ func (pm *playlistManager) Close() error {
 		Msg("Playlist manager closed")
 
 	return nil
+}
+
+// GetCurrentSegments returns the list of segment URIs currently in the playlist window
+func (pm *playlistManager) GetCurrentSegments() []string {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	count := pm.playlist.Count()
+	if count == 0 {
+		return []string{}
+	}
+
+	// Encode playlist to get current segments (library handles window correctly)
+	buf := pm.playlist.Encode()
+	if buf == nil {
+		return []string{}
+	}
+
+	// Parse segment URIs from encoded playlist
+	content := buf.String()
+	lines := strings.Split(content, "\n")
+	segments := make([]string, 0, count)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Segment URIs appear on lines that don't start with # and end with .ts
+		if line != "" && !strings.HasPrefix(line, "#") && strings.HasSuffix(line, ".ts") {
+			segments = append(segments, line)
+		}
+	}
+
+	return segments
 }
