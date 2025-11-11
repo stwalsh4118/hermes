@@ -34,6 +34,9 @@ const (
 	defaultStreamSegmentDuration        = 4
 	defaultStreamSegmentFilenamePattern = "seg-%Y%m%dT%H%M%S.ts"
 	defaultFPS                          = 30
+	defaultSegmentWatcherSafetyBuffer   = 2
+	defaultSegmentWatcherPruneInterval  = 30
+	defaultSegmentWatcherPollInterval   = 1
 	envPrefix                           = "HERMES"
 )
 
@@ -87,6 +90,9 @@ type StreamingConfig struct {
 	StreamSegmentDuration        int    // Stream segment duration in seconds (default: 4)
 	StreamSegmentFilenamePattern string // Filename pattern for stream segments with strftime (default: seg-%Y%m%dT%H%M%S.ts)
 	FPS                          int    // Frames per second for GOP calculations (default: 30)
+	SegmentWatcherSafetyBuffer   int    // Segments beyond window to keep (default: 2)
+	SegmentWatcherPruneInterval  int    // Prune interval in seconds (default: 30)
+	SegmentWatcherPollInterval   int    // Polling interval in seconds if fsnotify unavailable (default: 1)
 }
 
 // Load reads configuration from .env file, config files, environment variables, and defaults
@@ -168,6 +174,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("streaming.streamsegmentduration", defaultStreamSegmentDuration)
 	v.SetDefault("streaming.streamsegmentfilenamepattern", defaultStreamSegmentFilenamePattern)
 	v.SetDefault("streaming.fps", defaultFPS)
+	v.SetDefault("streaming.segmentwatchersafetybuffer", defaultSegmentWatcherSafetyBuffer)
+	v.SetDefault("streaming.segmentwatcherpruneinterval", defaultSegmentWatcherPruneInterval)
+	v.SetDefault("streaming.segmentwatcherpollinterval", defaultSegmentWatcherPollInterval)
 }
 
 // Validate checks that configuration values are valid
@@ -250,6 +259,19 @@ func (c *Config) Validate() error {
 
 	if c.Streaming.FPS <= 0 {
 		return fmt.Errorf("invalid FPS: %d (must be > 0)", c.Streaming.FPS)
+	}
+
+	// Validate segment watcher configuration
+	if c.Streaming.SegmentWatcherSafetyBuffer < 0 {
+		return fmt.Errorf("segment watcher safety buffer must be >= 0, got %d", c.Streaming.SegmentWatcherSafetyBuffer)
+	}
+
+	if c.Streaming.SegmentWatcherPruneInterval <= 0 {
+		return fmt.Errorf("segment watcher prune interval must be > 0, got %d", c.Streaming.SegmentWatcherPruneInterval)
+	}
+
+	if c.Streaming.SegmentWatcherPollInterval <= 0 {
+		return fmt.Errorf("segment watcher poll interval must be > 0, got %d", c.Streaming.SegmentWatcherPollInterval)
 	}
 
 	// Database path validation will be done when opening DB
