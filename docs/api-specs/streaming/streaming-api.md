@@ -151,7 +151,6 @@ type StreamParams struct {
     SeekSeconds     int64         // Starting position in seconds (0 = beginning)
     SegmentDuration int           // HLS segment duration in seconds
     PlaylistSize    int           // Number of segments to keep in playlist
-    RealtimePacing  bool          // Enable -re flag for 1x speed encoding (ignored in batch mode)
     EncodingPreset  string        // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
     BatchMode       bool          // Enable batch generation mode (generates N segments then exits)
     BatchSize       int           // Number of segments to generate per batch (required when BatchMode is true)
@@ -164,7 +163,7 @@ Parameters for building an FFmpeg HLS command.
 - When `BatchMode` is `true`, FFmpeg generates exactly `BatchSize` segments then exits cleanly
 - Batch mode removes `-stream_loop -1` flag (no infinite looping)
 - Batch mode adds `-t` duration flag (totalSeconds = BatchSize * SegmentDuration)
-- Batch mode always excludes `-re` flag (fast encoding, regardless of RealtimePacing setting)
+- Batch mode always uses fast encoding (no `-re` flag)
 - `SeekSeconds` is used for batch continuation (start next batch from previous position)
 - `BatchSize` must be > 0 when `BatchMode` is `true`
 
@@ -277,7 +276,7 @@ Note: VideoToolbox doesn't support presets in the same way
 
 **1080p Software Encoding with Ultrafast Preset (24/7 Channel):**
 ```
-ffmpeg -re -stream_loop -1 -i /media/video.mp4 \
+ffmpeg -stream_loop -1 -i /media/video.mp4 \
   -c:v libx264 -preset ultrafast \
   -c:a aac -b:a 192k -ac 2 \
   -b:v 5000k -maxrate 5000k -bufsize 10000k -s 1920x1080 \
@@ -287,7 +286,7 @@ ffmpeg -re -stream_loop -1 -i /media/video.mp4 \
   /streams/channel1/1080p.m3u8
 ```
 Note: 
-- `-re` enables real-time pacing (1x speed)
+- No `-re` flag (uses fast encoding for 24/7 channel mode)
 - `-stream_loop -1` loops video infinitely for 24/7 channel
 - `hls_time 2` creates 2-second segments for faster startup
 - `hls_list_size 10` maintains sliding window of 10 most recent segments
@@ -1573,7 +1572,7 @@ Generates the next batch of segments for a stream session with seamless continua
 6. **Build FFmpeg Command**: Create `StreamParams` with batch mode enabled:
    - `BatchMode: true`, `BatchSize: config.BatchSize`
    - `SeekSeconds: nextOffset`
-   - `RealtimePacing: false` (batch mode always uses fast encoding)
+   - Batch mode always uses fast encoding (no `-re` flag)
 7. **Launch FFmpeg Process**: Use `launchFFmpeg()` to start process
 8. **Create BatchState**: Initialize new batch with calculated parameters
 9. **Update Session**: Atomically update session with new batch state
