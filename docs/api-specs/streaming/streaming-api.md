@@ -2901,10 +2901,11 @@ Location: `internal/streaming/playlist/watcher.go`
 type Watcher interface {
     Start() error
     Stop() error
+    MarkDiscontinuity() // Signal encoder restart - next segment will have discontinuity tag
 }
 ```
 
-Watches a directory for new TS segments and notifies the playlist manager. Automatically prunes old segments beyond `(window + safetyBuffer)`.
+Watches a directory for new TS segments and notifies the playlist manager. Automatically prunes old segments beyond `(window + safetyBuffer)`. Detects timestamp regressions and signals discontinuities.
 
 ### NewWatcher
 
@@ -2939,9 +2940,25 @@ Creates a new segment watcher instance.
 - Uses `fsnotify` for file watching with polling fallback
 - Debounces file events (500ms window) to handle atomic writes
 - Prunes segments older than `(windowSize + safetyBuffer)` while protecting playlist segments
+- Detects timestamp regressions (PTS regression) and automatically signals discontinuity
 - Thread-safe with graceful shutdown
 
+### MarkDiscontinuity
+
+```go
+func (w Watcher) MarkDiscontinuity()
+```
+
+Signals that the encoder has restarted. The next segment added will have a `#EXT-X-DISCONTINUITY` tag. Resets timestamp tracking to allow fresh start after restart.
+
 **Usage:**
+```go
+// After encoder restart
+watcher.MarkDiscontinuity()
+// Next segment will have discontinuity tag
+```
+
+**NewWatcher Usage:**
 ```go
 watcher, err := playlist.NewWatcher(
     "/streams/channel1",
