@@ -78,7 +78,6 @@ type StreamingConfig struct {
 	SegmentPath        string // Directory for storing stream segments
 	GracePeriodSeconds int    // Time to keep stream alive after last client disconnects
 	CleanupInterval    int    // How often to cleanup old segments in seconds
-	RealtimePacing     bool   // Enable -re flag for 1x speed encoding (true = real-time, false = fast encoding)
 	EncodingPreset     string // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
 	BatchSize          int    // Number of segments per batch (default: 20)
 	TriggerThreshold   int    // Generate next batch when N segments remain (default: 5)
@@ -157,7 +156,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("streaming.segmentpath", defaultStreamingSegmentPath)
 	v.SetDefault("streaming.graceperiodseconds", defaultStreamingGracePeriod)
 	v.SetDefault("streaming.cleanupinterval", defaultStreamingCleanupInterval)
-	v.SetDefault("streaming.realtimepacing", true)
 	v.SetDefault("streaming.encodingpreset", defaultStreamingEncodingPreset)
 	v.SetDefault("streaming.batchsize", defaultStreamingBatchSize)
 	v.SetDefault("streaming.triggerthreshold", defaultStreamingTriggerThreshold)

@@ -30,7 +30,6 @@ streaming:
   segmentpath: "./data/streams"
   graceperiodseconds: 30
   cleanupinterval: 60
-  realtimepacing: true            # 1x speed encoding = stays just ahead of playback
   
   # Encoding optimization with NVENC
   # - ultrafast (p1): Fastest, good quality, perfect for live streaming
