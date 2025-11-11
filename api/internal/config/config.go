@@ -29,9 +29,12 @@ const (
 	defaultStreamingGracePeriod      = 30
 	defaultStreamingCleanupInterval  = 60
 	defaultStreamingEncodingPreset   = "ultrafast"
-	defaultStreamingBatchSize        = 20
-	defaultStreamingTriggerThreshold = 5
-	envPrefix                        = "HERMES"
+	defaultStreamingBatchSize              = 20
+	defaultStreamingTriggerThreshold       = 5
+	defaultStreamSegmentDuration           = 4
+	defaultStreamSegmentFilenamePattern    = "seg-%Y%m%dT%H%M%S.ts"
+	defaultFPS                             = 30
+	envPrefix                              = "HERMES"
 )
 
 // Config holds all application configuration
@@ -72,15 +75,18 @@ type MediaConfig struct {
 
 // StreamingConfig holds video streaming configuration
 type StreamingConfig struct {
-	HardwareAccel      string // none, nvenc, qsv, vaapi, videotoolbox, auto
-	SegmentDuration    int    // HLS segment duration in seconds
-	PlaylistSize       int    // Number of segments to keep in playlist
-	SegmentPath        string // Directory for storing stream segments
-	GracePeriodSeconds int    // Time to keep stream alive after last client disconnects
-	CleanupInterval    int    // How often to cleanup old segments in seconds
-	EncodingPreset     string // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
-	BatchSize          int    // Number of segments per batch (default: 20)
-	TriggerThreshold   int    // Generate next batch when N segments remain (default: 5)
+	HardwareAccel              string // none, nvenc, qsv, vaapi, videotoolbox, auto
+	SegmentDuration            int    // HLS segment duration in seconds
+	PlaylistSize               int    // Number of segments to keep in playlist
+	SegmentPath                string // Directory for storing stream segments
+	GracePeriodSeconds         int    // Time to keep stream alive after last client disconnects
+	CleanupInterval            int    // How often to cleanup old segments in seconds
+	EncodingPreset             string // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
+	BatchSize                  int    // Number of segments per batch (default: 20)
+	TriggerThreshold           int    // Generate next batch when N segments remain (default: 5)
+	StreamSegmentDuration      int    // Stream segment duration in seconds (default: 4)
+	StreamSegmentFilenamePattern string // Filename pattern for stream segments with strftime (default: seg-%Y%m%dT%H%M%S.ts)
+	FPS                        int    // Frames per second for GOP calculations (default: 30)
 }
 
 // Load reads configuration from .env file, config files, environment variables, and defaults
@@ -159,6 +165,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("streaming.encodingpreset", defaultStreamingEncodingPreset)
 	v.SetDefault("streaming.batchsize", defaultStreamingBatchSize)
 	v.SetDefault("streaming.triggerthreshold", defaultStreamingTriggerThreshold)
+	v.SetDefault("streaming.streamsegmentduration", defaultStreamSegmentDuration)
+	v.SetDefault("streaming.streamsegmentfilenamepattern", defaultStreamSegmentFilenamePattern)
+	v.SetDefault("streaming.fps", defaultFPS)
 }
 
 // Validate checks that configuration values are valid
@@ -228,6 +237,19 @@ func (c *Config) Validate() error {
 
 	if c.Streaming.TriggerThreshold >= c.Streaming.BatchSize {
 		return fmt.Errorf("trigger threshold (%d) must be less than batch size (%d)", c.Streaming.TriggerThreshold, c.Streaming.BatchSize)
+	}
+
+	// Validate stream segment configuration
+	if c.Streaming.StreamSegmentDuration <= 0 {
+		return fmt.Errorf("invalid stream segment duration: %d (must be > 0)", c.Streaming.StreamSegmentDuration)
+	}
+
+	if c.Streaming.StreamSegmentFilenamePattern == "" {
+		return fmt.Errorf("stream segment filename pattern cannot be empty")
+	}
+
+	if c.Streaming.FPS <= 0 {
+		return fmt.Errorf("invalid FPS: %d (must be > 0)", c.Streaming.FPS)
 	}
 
 	// Database path validation will be done when opening DB
