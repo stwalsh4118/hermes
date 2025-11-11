@@ -126,8 +126,11 @@ type StreamingConfig struct {
     SegmentPath        string // Default: "./data/streams" - Directory for segments
     GracePeriodSeconds int    // Default: 30 - Keep-alive after last client
     CleanupInterval    int    // Default: 60 - Cleanup interval in seconds
-    BatchSize          int    // Default: 20 - Number of segments per batch
-    TriggerThreshold   int    // Default: 5 - Generate next batch when N segments remain
+    BatchSize                    int    // Default: 20 - Number of segments per batch
+    TriggerThreshold             int    // Default: 5 - Generate next batch when N segments remain
+    SegmentWatcherSafetyBuffer   int    // Default: 2 - Segments beyond window to keep
+    SegmentWatcherPruneInterval  int    // Default: 30 - Prune interval in seconds
+    SegmentWatcherPollInterval   int    // Default: 1 - Polling interval in seconds if fsnotify unavailable
 }
 ```
 

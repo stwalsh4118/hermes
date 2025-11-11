@@ -2781,6 +2781,7 @@ type Manager interface {
     SetDiscontinuityNext()
     Write() error
     Close() error
+    GetCurrentSegments() []string
 }
 
 type SegmentMeta struct {
@@ -2871,6 +2872,92 @@ if err != nil {
 
 // Write playlist
 err = pm.Write()
+```
+
+### GetCurrentSegments
+
+```go
+func (m Manager) GetCurrentSegments() []string
+```
+
+Returns the list of segment URIs currently in the playlist window. Used by segment watcher to determine which segments are safe to delete during pruning.
+
+**Returns:**
+- `[]string`: List of segment filenames currently in the playlist window
+
+**Usage:**
+```go
+currentSegments := pm.GetCurrentSegments()
+// Returns: []string{"seg-001.ts", "seg-002.ts", ...}
+```
+
+## Segment Watcher
+
+Location: `internal/streaming/playlist/watcher.go`
+
+### Watcher Interface
+
+```go
+type Watcher interface {
+    Start() error
+    Stop() error
+}
+```
+
+Watches a directory for new TS segments and notifies the playlist manager. Automatically prunes old segments beyond `(window + safetyBuffer)`.
+
+### NewWatcher
+
+```go
+func NewWatcher(
+    segmentDir string,
+    playlistManager Manager,
+    windowSize uint,
+    safetyBuffer uint,
+    pruneInterval time.Duration,
+    segmentDuration float64,
+    pollInterval time.Duration,
+) (Watcher, error)
+```
+
+Creates a new segment watcher instance.
+
+**Parameters:**
+- `segmentDir`: Directory to watch for `.ts` files
+- `playlistManager`: Playlist manager to notify on new segments
+- `windowSize`: Number of segments in playlist window
+- `safetyBuffer`: Additional segments beyond window to keep (default: 2)
+- `pruneInterval`: How often to run pruning (default: 30s)
+- `segmentDuration`: Expected segment duration in seconds (default: 4.0)
+- `pollInterval`: Polling interval if fsnotify unavailable (default: 1s)
+
+**Returns:**
+- `Watcher`: Watcher instance
+- `error`: Validation errors
+
+**Features:**
+- Uses `fsnotify` for file watching with polling fallback
+- Debounces file events (500ms window) to handle atomic writes
+- Prunes segments older than `(windowSize + safetyBuffer)` while protecting playlist segments
+- Thread-safe with graceful shutdown
+
+**Usage:**
+```go
+watcher, err := playlist.NewWatcher(
+    "/streams/channel1",
+    pm,
+    6,  // windowSize
+    2,  // safetyBuffer
+    30*time.Second, // pruneInterval
+    4.0, // segmentDuration
+    1*time.Second, // pollInterval
+)
+if err != nil {
+    return err
+}
+
+err = watcher.Start()
+defer watcher.Stop()
 ```
 
 ## Service Interfaces
