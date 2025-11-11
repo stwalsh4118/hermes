@@ -384,3 +384,13 @@ func (s *StreamSession) GetCurrentBatch() *BatchState {
 	defer s.mu.RUnlock()
 	return s.CurrentBatch
 }
+
+// UpdateBatchCompletion updates the batch completion state (thread-safe)
+func (s *StreamSession) UpdateBatchCompletion(generationEnded time.Time, isComplete bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.CurrentBatch != nil {
+		s.CurrentBatch.GenerationEnded = generationEnded
+		s.CurrentBatch.IsComplete = isComplete
+	}
+}
