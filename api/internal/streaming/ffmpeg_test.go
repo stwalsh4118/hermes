@@ -878,17 +878,17 @@ func TestBuildHLSCommand_BatchMode_ZeroSeekSeconds(t *testing.T) {
 // TestBuildHLSCommand_StreamSegmentMode tests stream_segment muxer mode
 func TestBuildHLSCommand_StreamSegmentMode(t *testing.T) {
 	params := StreamParams{
-		InputFile:             "/media/video.mp4",
-		OutputPath:            "/streams/channel1", // Not used in stream_segment mode, but required for validation
-		Quality:               Quality1080p,
-		HardwareAccel:         HardwareAccelNone,
-		SeekSeconds:           0,
-		SegmentDuration:       4, // 4 second segments
-		PlaylistSize:          10, // Not used in stream_segment mode, but required for validation
-		StreamSegmentMode:     true,
+		InputFile:              "/media/video.mp4",
+		OutputPath:             "/streams/channel1", // Not used in stream_segment mode, but required for validation
+		Quality:                Quality1080p,
+		HardwareAccel:          HardwareAccelNone,
+		SeekSeconds:            0,
+		SegmentDuration:        4,  // 4 second segments
+		PlaylistSize:           10, // Not used in stream_segment mode, but required for validation
+		StreamSegmentMode:      true,
 		SegmentOutputDir:       "/streams/channel1/1080p",
 		SegmentFilenamePattern: "seg-%Y%m%dT%H%M%S.ts",
-		FPS:                   30,
+		FPS:                    30,
 	}
 
 	cmd, err := BuildHLSCommand(params)
@@ -935,11 +935,12 @@ func TestBuildHLSCommand_StreamSegmentMode(t *testing.T) {
 
 	// Verify force_key_frames expression
 	keyframeIdx := findArgIndex(cmd.Args, "-force_key_frames")
-	if keyframeIdx == -1 {
+	switch {
+	case keyframeIdx == -1:
 		t.Error("Expected force_key_frames flag")
-	} else if keyframeIdx+1 >= len(cmd.Args) {
+	case keyframeIdx+1 >= len(cmd.Args):
 		t.Error("force_key_frames missing expression")
-	} else {
+	default:
 		expr := cmd.Args[keyframeIdx+1]
 		if !strings.Contains(expr, "expr:gte(t,n_forced*4)") {
 			t.Errorf("Expected force_key_frames expression with 4 second interval, got: %s", expr)
@@ -983,20 +984,20 @@ func TestBuildHLSCommand_StreamSegmentMode(t *testing.T) {
 // TestBuildHLSCommand_StreamSegmentMode_BatchMode tests stream_segment mode with batch mode
 func TestBuildHLSCommand_StreamSegmentMode_BatchMode(t *testing.T) {
 	params := StreamParams{
-		InputFile:             "/media/video.mp4",
-		OutputPath:            "/streams/channel1",
-		Quality:               Quality720p,
-		HardwareAccel:         HardwareAccelNVENC,
-		SeekSeconds:           3600,
-		SegmentDuration:       4,
-		PlaylistSize:          10,
-		EncodingPreset:        "ultrafast",
-		BatchMode:             true,
-		BatchSize:             20,
-		StreamSegmentMode:     true,
+		InputFile:              "/media/video.mp4",
+		OutputPath:             "/streams/channel1",
+		Quality:                Quality720p,
+		HardwareAccel:          HardwareAccelNVENC,
+		SeekSeconds:            3600,
+		SegmentDuration:        4,
+		PlaylistSize:           10,
+		EncodingPreset:         "ultrafast",
+		BatchMode:              true,
+		BatchSize:              20,
+		StreamSegmentMode:      true,
 		SegmentOutputDir:       "/streams/channel1/720p",
 		SegmentFilenamePattern: "seg-%Y%m%dT%H%M%S.ts",
-		FPS:                   30,
+		FPS:                    30,
 	}
 
 	cmd, err := BuildHLSCommand(params)

@@ -13,28 +13,28 @@ import (
 )
 
 const (
-	defaultServerPort                = 8080
-	defaultServerHost                = "0.0.0.0"
-	defaultReadTimeout               = 30 * time.Second
-	defaultWriteTimeout              = 30 * time.Second
-	defaultDatabasePath              = "./data/hermes.db"
-	defaultDatabaseConnectionTimeout = 5 * time.Second
-	defaultLogLevel                  = "info"
-	defaultLogPretty                 = false
-	defaultDatabaseEnableWAL         = true
-	defaultStreamingHardwareAccel    = "auto"
-	defaultStreamingSegmentDuration  = 2
-	defaultStreamingPlaylistSize     = 10
-	defaultStreamingSegmentPath      = "./data/streams"
-	defaultStreamingGracePeriod      = 30
-	defaultStreamingCleanupInterval  = 60
-	defaultStreamingEncodingPreset   = "ultrafast"
-	defaultStreamingBatchSize              = 20
-	defaultStreamingTriggerThreshold       = 5
-	defaultStreamSegmentDuration           = 4
-	defaultStreamSegmentFilenamePattern    = "seg-%Y%m%dT%H%M%S.ts"
-	defaultFPS                             = 30
-	envPrefix                              = "HERMES"
+	defaultServerPort                   = 8080
+	defaultServerHost                   = "0.0.0.0"
+	defaultReadTimeout                  = 30 * time.Second
+	defaultWriteTimeout                 = 30 * time.Second
+	defaultDatabasePath                 = "./data/hermes.db"
+	defaultDatabaseConnectionTimeout    = 5 * time.Second
+	defaultLogLevel                     = "info"
+	defaultLogPretty                    = false
+	defaultDatabaseEnableWAL            = true
+	defaultStreamingHardwareAccel       = "auto"
+	defaultStreamingSegmentDuration     = 2
+	defaultStreamingPlaylistSize        = 10
+	defaultStreamingSegmentPath         = "./data/streams"
+	defaultStreamingGracePeriod         = 30
+	defaultStreamingCleanupInterval     = 60
+	defaultStreamingEncodingPreset      = "ultrafast"
+	defaultStreamingBatchSize           = 20
+	defaultStreamingTriggerThreshold    = 5
+	defaultStreamSegmentDuration        = 4
+	defaultStreamSegmentFilenamePattern = "seg-%Y%m%dT%H%M%S.ts"
+	defaultFPS                          = 30
+	envPrefix                           = "HERMES"
 )
 
 // Config holds all application configuration
@@ -75,18 +75,18 @@ type MediaConfig struct {
 
 // StreamingConfig holds video streaming configuration
 type StreamingConfig struct {
-	HardwareAccel              string // none, nvenc, qsv, vaapi, videotoolbox, auto
-	SegmentDuration            int    // HLS segment duration in seconds
-	PlaylistSize               int    // Number of segments to keep in playlist
-	SegmentPath                string // Directory for storing stream segments
-	GracePeriodSeconds         int    // Time to keep stream alive after last client disconnects
-	CleanupInterval            int    // How often to cleanup old segments in seconds
-	EncodingPreset             string // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
-	BatchSize                  int    // Number of segments per batch (default: 20)
-	TriggerThreshold           int    // Generate next batch when N segments remain (default: 5)
-	StreamSegmentDuration      int    // Stream segment duration in seconds (default: 4)
+	HardwareAccel                string // none, nvenc, qsv, vaapi, videotoolbox, auto
+	SegmentDuration              int    // HLS segment duration in seconds
+	PlaylistSize                 int    // Number of segments to keep in playlist
+	SegmentPath                  string // Directory for storing stream segments
+	GracePeriodSeconds           int    // Time to keep stream alive after last client disconnects
+	CleanupInterval              int    // How often to cleanup old segments in seconds
+	EncodingPreset               string // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
+	BatchSize                    int    // Number of segments per batch (default: 20)
+	TriggerThreshold             int    // Generate next batch when N segments remain (default: 5)
+	StreamSegmentDuration        int    // Stream segment duration in seconds (default: 4)
 	StreamSegmentFilenamePattern string // Filename pattern for stream segments with strftime (default: seg-%Y%m%dT%H%M%S.ts)
-	FPS                        int    // Frames per second for GOP calculations (default: 30)
+	FPS                          int    // Frames per second for GOP calculations (default: 30)
 }
 
 // Load reads configuration from .env file, config files, environment variables, and defaults
