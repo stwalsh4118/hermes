@@ -18,6 +18,7 @@ This document contains all Product Backlog Items (PBIs) for the Virtual TV Chann
 | 10 | User | As a user, I want to watch my channels through a web player so that I can enjoy my content | Agreed | - HLS video player integration (HLS.js or Video.js)<br>- Full-width responsive player (16:9 aspect ratio)<br>- "Now playing" display with program title and description<br>- Progress bar showing position in current program<br>- "Next up" preview section<br>- Channel schedule sidebar/bottom sheet<br>- Schedule shows next 24 hours with thumbnails<br>- Auto-refresh current program info<br>- Quality selection interface<br>- Live indicator<br>- Error handling and reconnection logic<br>- Mobile and TV browser compatibility |
 | 11 | User | As a user, I want to configure system settings and deploy easily so that I can customize and maintain the service | Proposed | - Settings page UI for all configuration options<br>- Media library path configuration<br>- Streaming quality presets (High/Medium/Low)<br>- Hardware acceleration selection<br>- Custom FFmpeg parameters (advanced)<br>- Server port and host settings<br>- Settings API integration<br>- Hardware encoder detection and display<br>- Docker Compose configuration<br>- Comprehensive README with setup instructions<br>- Deployment guide documentation<br>- Error messages with actionable suggestions<br>- Loading states throughout application<br>- Confirmation dialogs for destructive actions<br>- End-to-end testing suite |
 || 12 | System/User | As a user, I want the streaming system to generate segments on-demand so that streams start quickly without wasting resources on unwatched content | Proposed | - FFmpeg generates fixed-size batches (N segments) then exits cleanly<br>- Batch size configurable (default: 20 segments)<br>- Trigger threshold configurable (default: 5 segments)<br>- `-stream_loop -1` removed from FFmpeg commands<br>- Position tracking API endpoint functional<br>- Frontend reports current segment position every 5 seconds<br>- StreamSession tracks batch state and client positions<br>- Batch coordinator monitors and triggers generation automatically<br>- Next batch starts when furthest client reaches threshold<br>- Seamless continuation between batches (no gaps)<br>- Resource usage reduced by >70% vs continuous generation<br>- Initial batch generates in <10 seconds<br>- Integration tests verify batch operations<br>- `RealtimePacing` config option removed |
+| 13 | Viewer | As a viewer, I want reliable live HLS playback with consistent 4s segments and a stable sliding window so that playback is smooth and resilient | Agreed | 4s TS segments; robust sliding window; atomic playlist writes; playback stable ≥5 min |
 
 ## PBI Details
 
@@ -33,6 +34,7 @@ This document contains all Product Backlog Items (PBIs) for the Virtual TV Chann
 - [PBI 10: Video Player & Streaming UI](./10/prd.md)
 - [PBI 11: Settings, Polish & Deployment](./11/prd.md)
 - [PBI 12: Just-in-Time Segment Generation](./12/prd.md)
+- [PBI 13: Reliable HLS live (4s TS) with Go-managed playlists](./13/prd.md)
 
 ## History Log
 
@@ -49,4 +51,6 @@ This document contains all Product Backlog Items (PBIs) for the Virtual TV Chann
 | 20251030-120000 | 6 | propose_for_backlog | PBI-6 approved: Streaming engine with HLS generation, FFmpeg transcoding, hardware acceleration, multi-client support | User |
 | 20251031-000000 | 10 | propose_for_backlog | PBI-10 approved: Video player & streaming UI with HLS.js, custom controls, EPG placeholders (PBI-5 integration later) | User |
 || 20251031-120000 | 12 | create_pbi | PBI-12 created: Just-in-time segment generation with batch-based FFmpeg execution, position tracking, and automatic triggering | AI_Agent |
+| 20251111-000000 | 13 | create_pbi | PBI-13 created: Reliable HLS live with 4s TS segments and Go-managed sliding-window playlists | AI_Agent |
+| 20251111-010000 | 13 | propose_for_backlog | PBI-13 approved to proceed; standard HLS, 4s TS segments, Go-managed sliding window using hls-m3u8 | User |
 
