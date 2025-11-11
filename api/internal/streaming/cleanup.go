@@ -189,3 +189,72 @@ func cleanupOldSegments(_ string, _ int64) error {
 
 // Suppress unused warning - reserved for future monitoring
 var _ = cleanupOldSegments
+
+// cleanupOldBatches removes segments from N-2 batch (two batches ago) after N batch completes successfully.
+// This keeps N-1 batch available during N batch generation to prevent gaps if generation fails.
+// Only cleans up when batch number >= 2 (need at least 2 batches before cleanup).
+func cleanupOldBatches(session *models.StreamSession, batchSize int, outputDir string, quality string) {
+	currentBatch := session.GetCurrentBatch()
+	if currentBatch == nil || currentBatch.BatchNumber < 2 {
+		// Need at least 2 batches before cleanup
+		return
+	}
+
+	// Calculate batch to delete (N-2)
+	batchToDelete := currentBatch.BatchNumber - 2
+
+	// Calculate segment range for that batch
+	startSegment := batchToDelete * batchSize
+	endSegment := startSegment + batchSize - 1
+
+	channelIDStr := session.ChannelID.String()
+
+	logger.Log.Debug().
+		Str("channel_id", channelIDStr).
+		Int("current_batch", currentBatch.BatchNumber).
+		Int("batch_to_delete", batchToDelete).
+		Int("start_segment", startSegment).
+		Int("end_segment", endSegment).
+		Msg("Cleaning up old batch segments")
+
+	// Build quality directory path
+	qualityDir := filepath.Join(outputDir, quality)
+
+	// Iterate through segment range and delete segment files
+	deletedCount := 0
+	for logicalSegment := startSegment; logicalSegment <= endSegment; logicalSegment++ {
+		// Handle segment filename wrapping (%03d pattern wraps at 1000)
+		filenameSegment := logicalSegment % 1000
+
+		// Build segment filename: {quality}_segment_{NNN}.ts
+		segmentFilename := fmt.Sprintf("%s_segment_%03d.ts", quality, filenameSegment)
+		segmentPath := filepath.Join(qualityDir, segmentFilename)
+
+		// Delete segment file
+		if err := os.Remove(segmentPath); err != nil {
+			if os.IsNotExist(err) {
+				// File doesn't exist - may have been deleted already, ignore
+				continue
+			}
+			// Log other errors but don't fail (best-effort cleanup)
+			logger.Log.Warn().
+				Err(err).
+				Str("channel_id", channelIDStr).
+				Str("segment_path", segmentPath).
+				Int("logical_segment", logicalSegment).
+				Int("filename_segment", filenameSegment).
+				Msg("Failed to delete old segment")
+		} else {
+			deletedCount++
+		}
+	}
+
+	if deletedCount > 0 {
+		logger.Log.Info().
+			Str("channel_id", channelIDStr).
+			Int("batch_to_delete", batchToDelete).
+			Int("deleted_count", deletedCount).
+			Int("total_segments", endSegment-startSegment+1).
+			Msg("Cleaned up old batch segments")
+	}
+}

@@ -757,6 +757,12 @@ func (m *StreamManager) monitorBatchCompletion(session *models.StreamSession, cm
 			Int("end_segment", batch.EndSegment).
 			Dur("generation_time", generationEnded.Sub(batch.GenerationStarted)).
 			Msg("Batch generation completed successfully")
+
+		// Clean up old batches (N-2) after successful completion
+		// This keeps N-1 batch available during N batch generation
+		outputDir := session.GetOutputDir()
+		quality := Quality1080p // Default to 1080p for now (matches current implementation)
+		cleanupOldBatches(session, m.config.BatchSize, outputDir, quality)
 	}
 }
 
