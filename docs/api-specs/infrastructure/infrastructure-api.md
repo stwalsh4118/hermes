@@ -128,9 +128,6 @@ type StreamingConfig struct {
     CleanupInterval    int    // Default: 60 - Cleanup interval in seconds
     BatchSize                    int    // Default: 20 - Number of segments per batch
     TriggerThreshold             int    // Default: 5 - Generate next batch when N segments remain
-    SegmentWatcherSafetyBuffer   int    // Default: 2 - Segments beyond window to keep
-    SegmentWatcherPruneInterval  int    // Default: 30 - Prune interval in seconds
-    SegmentWatcherPollInterval   int    // Default: 1 - Polling interval in seconds if fsnotify unavailable
 }
 ```
 
@@ -798,87 +795,6 @@ if !status.Healthy {
 ```
 
 **See Also:** [Streaming API - Playlist Manager](../streaming/streaming-api.md#playlist-manager-sliding-window) for detailed usage examples and streaming-specific documentation.
-
-### Segment Watcher
-
-Location: `internal/streaming/playlist/watcher.go`
-
-Watches a directory for new TS segments and notifies the playlist manager. Automatically prunes old segments beyond the window size plus safety buffer.
-
-**Watcher Interface:**
-```go
-type Watcher interface {
-    Start() error
-    Stop() error
-    MarkDiscontinuity() // Signal that encoder has restarted and next segment should have discontinuity tag
-}
-```
-
-**Creating Watcher:**
-```go
-func NewWatcher(
-    segmentDir string,
-    playlistManager Manager,
-    windowSize uint,
-    safetyBuffer uint,
-    pruneInterval time.Duration,
-    segmentDuration float64,
-    pollInterval time.Duration,
-) (Watcher, error)
-```
-
-Creates a new segment watcher instance.
-
-**Parameters:**
-- `segmentDir`: Directory path to watch for `.ts` files
-- `playlistManager`: Manager instance to notify on new segments
-- `windowSize`: Number of segments to keep in playlist window (must be > 0)
-- `safetyBuffer`: Segments beyond window to keep before pruning (default: 2)
-- `pruneInterval`: Interval between pruning operations (default: 30s)
-- `segmentDuration`: Expected segment duration in seconds (default: 4.0)
-- `pollInterval`: Polling interval if fsnotify unavailable (default: 1s)
-
-**Returns:**
-- `Watcher`: Watcher instance
-- `error`: Validation errors
-
-**Key Operations:**
-- `Start()`: Begins watching for new segments and starts pruning goroutine (uses fsnotify with polling fallback)
-- `Stop()`: Gracefully stops the watcher and waits for goroutines to finish
-- `MarkDiscontinuity()`: Signals that encoder has restarted and next segment should have discontinuity tag
-
-**Usage Example:**
-```go
-import "github.com/stwalsh4118/hermes/internal/streaming/playlist"
-
-// Create playlist manager
-manager, _ := playlist.NewManager(6, "/streams/channel1/playlist.m3u8", 4.0)
-
-// Create watcher
-watcher, err := playlist.NewWatcher(
-    "/streams/channel1/segments",
-    manager,
-    6,                    // windowSize
-    2,                    // safetyBuffer
-    30*time.Second,       // pruneInterval
-    4.0,                  // segmentDuration
-    1*time.Second,        // pollInterval
-)
-if err != nil {
-    return err
-}
-
-// Start watching
-if err := watcher.Start(); err != nil {
-    return err
-}
-defer watcher.Stop()
-
-// Mark discontinuity on encoder restart
-watcher.MarkDiscontinuity()
-```
-
-**See Also:** [Streaming API - Segment Watcher](../streaming/streaming-api.md#segment-watcher) for detailed usage examples and streaming-specific documentation.
 
 ## Best Practices
 
