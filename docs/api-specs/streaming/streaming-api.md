@@ -2829,16 +2829,22 @@ Creates a new playlist manager with specified window size and output path.
 ### AddSegment
 
 ```go
-func (m Manager) AddSegment(seg SegmentMeta) error
+func (m Manager) AddSegment(seg SegmentMeta) ([]string, error)
 ```
 
 Adds a segment to the playlist. Automatically handles sliding window pruning and updates target duration.
 
+**Returns:**
+- `[]string`: List of segment URIs that were pruned (for file deletion)
+- `error`: Validation errors (empty URI, invalid duration)
+
 **Behavior:**
 - Updates `TARGETDURATION` to `ceil(max observed segment duration)`
 - Inserts `#EXT-X-DISCONTINUITY` if flagged
-- Automatically prunes segments beyond window size
-- Updates `#EXT-X-MEDIA-SEQUENCE` when segments are pruned
+- Automatically prunes segments beyond window size when `len(segments) >= windowSize` and `windowSize > 0`
+- Updates `#EXT-X-MEDIA-SEQUENCE` when segments are pruned (increments by number pruned)
+- Returns empty slice if no pruning occurred
+- VOD/EVENT mode (`windowSize == 0`): never prunes segments, mediaSequence stays at 0
 
 ### SetDiscontinuityNext
 
