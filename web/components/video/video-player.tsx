@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState, forwardRef, useMemo } from "react";
 import Hls from "hls.js";
 import { LoadingSpinner } from "@/components/common/loading-spinner";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Bug } from "lucide-react";
 import { PlayerControls } from "./player-controls";
+import { BatchDebugOverlay } from "./batch-debug-overlay";
+import { Button } from "@/components/ui/button";
 
 interface VideoPlayerProps {
   channelId: string;
@@ -70,6 +72,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [needsInteraction, setNeedsInteraction] = useState(false);
+    const [showDebug, setShowDebug] = useState(false);
     const hlsRef = useRef<Hls | null>(null);
     const videoRef = useRef<HTMLVideoElement | null>(null);
     
@@ -261,6 +264,8 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         const hls = new Hls({
           enableWorker: true,
           lowLatencyMode: false, // VOD-like experience for channel streaming
+
+          startPosition: 0,
         });
 
         hlsRef.current = hls;
@@ -442,7 +447,26 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
               </button>
             </div>
           )}
+
+          {/* Debug Toggle Button */}
+          <Button
+            variant="outline"
+            size="icon"
+            className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/70 border-white/20 text-white"
+            onClick={() => setShowDebug(!showDebug)}
+            title="Toggle batch debug overlay"
+          >
+            <Bug className="h-4 w-4" />
+          </Button>
         </div>
+
+        {/* Debug Overlay */}
+        {showDebug && (
+          <BatchDebugOverlay
+            channelId={channelId}
+            onClose={() => setShowDebug(false)}
+          />
+        )}
       </div>
     );
   }
