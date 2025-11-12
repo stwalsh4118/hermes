@@ -33,7 +33,7 @@ type HealthStatus struct {
 // Provides full control over playlist generation with manual segment tracking
 // and sliding window management.
 type Manager interface {
-	AddSegment(seg SegmentMeta) error
+	AddSegment(seg SegmentMeta) ([]string, error)
 	SetDiscontinuityNext()
 	Write() error
 	Close() error
@@ -141,17 +141,18 @@ func NewManager(windowSize uint, outputPath string, initialTargetDuration float6
 }
 
 // AddSegment adds a new segment to the playlist.
-// TODO: Full implementation with sliding window logic and file cleanup will be completed in task 14-2.
-// This is a minimal implementation for the design phase.
-func (pm *playlistManager) AddSegment(seg SegmentMeta) error {
+// Returns a list of segment URIs that were pruned (for file deletion).
+// When windowSize > 0 and len(segments) >= windowSize, oldest segments are pruned from front.
+func (pm *playlistManager) AddSegment(seg SegmentMeta) ([]string, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
+	// Input validation
 	if seg.URI == "" {
-		return fmt.Errorf("segment URI cannot be empty")
+		return nil, fmt.Errorf("segment URI cannot be empty")
 	}
 	if seg.Duration <= 0 {
-		return fmt.Errorf("segment duration must be greater than 0")
+		return nil, fmt.Errorf("segment duration must be greater than 0")
 	}
 
 	// Update max duration if needed
@@ -168,14 +169,42 @@ func (pm *playlistManager) AddSegment(seg SegmentMeta) error {
 		pm.discontinuityNext = false
 	}
 
-	// Add segment to slice
+	// Initialize pruned URIs slice
+	prunedURIs := []string{}
+
+	// Implement sliding window pruning logic
+	if pm.windowSize > 0 && len(pm.segments) >= int(pm.windowSize) {
+		// Calculate how many segments to prune to make room for the new one
+		// If we have windowSize segments, we need to prune 1 to add the new one
+		segmentsToPrune := len(pm.segments) - int(pm.windowSize) + 1
+
+		// Collect URIs of segments to be pruned (from front of slice)
+		for i := 0; i < segmentsToPrune; i++ {
+			prunedURIs = append(prunedURIs, pm.segments[i].URI)
+		}
+
+		// Prune segments from front
+		pm.segments = pm.segments[segmentsToPrune:]
+
+		// Increment mediaSequence by number of segments pruned
+		pm.mediaSequence += uint64(segmentsToPrune)
+	}
+	// For VOD/EVENT mode (windowSize == 0), no pruning occurs and mediaSequence stays at 0
+
+	// Add new segment to slice
 	pm.segments = append(pm.segments, seg)
 
-	// TODO: Implement sliding window pruning logic in task 14-2
-	// When windowSize > 0 and len(segments) >= windowSize, prune from front
-	// and update mediaSequence accordingly
+	// Log segment addition with observability metrics
+	logger.Log.Debug().
+		Str("segment_uri", seg.URI).
+		Float64("duration", seg.Duration).
+		Uint("segment_count", uint(len(pm.segments))).
+		Uint64("media_sequence", pm.mediaSequence).
+		Uint("window_size", pm.windowSize).
+		Int("pruned_count", len(prunedURIs)).
+		Msg("Segment added to playlist")
 
-	return nil
+	return prunedURIs, nil
 }
 
 // SetDiscontinuityNext flags the next segment to have a discontinuity tag
