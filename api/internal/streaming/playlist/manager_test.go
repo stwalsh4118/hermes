@@ -146,7 +146,7 @@ func TestPlaylistManager_AddSegment(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := pm.AddSegment(tt.seg)
+			_, err := pm.AddSegment(tt.seg)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -171,7 +171,7 @@ func TestPlaylistManager_RingBuffer(t *testing.T) {
 			URI:      segmentName(i),
 			Duration: 4.0,
 		}
-		err := pm.AddSegment(seg)
+		_, err := pm.AddSegment(seg)
 		require.NoError(t, err)
 	}
 
@@ -214,7 +214,7 @@ func TestPlaylistManager_MediaSequence(t *testing.T) {
 			URI:      segmentName(i),
 			Duration: 4.0,
 		}
-		err := pm.AddSegment(seg)
+		_, err := pm.AddSegment(seg)
 		require.NoError(t, err)
 	}
 
@@ -271,7 +271,7 @@ func TestPlaylistManager_TargetDuration(t *testing.T) {
 	}
 
 	for _, seg := range segments {
-		err := pm.AddSegment(seg)
+		_, err := pm.AddSegment(seg)
 		require.NoError(t, err)
 	}
 
@@ -298,7 +298,7 @@ func TestPlaylistManager_Discontinuity(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add normal segment
-	err = pm.AddSegment(SegmentMeta{
+	_, err = pm.AddSegment(SegmentMeta{
 		URI:      "seg-001.ts",
 		Duration: 4.0,
 	})
@@ -308,14 +308,14 @@ func TestPlaylistManager_Discontinuity(t *testing.T) {
 	pm.SetDiscontinuityNext()
 
 	// Add segment after discontinuity
-	err = pm.AddSegment(SegmentMeta{
+	_, err = pm.AddSegment(SegmentMeta{
 		URI:      "seg-002.ts",
 		Duration: 4.0,
 	})
 	require.NoError(t, err)
 
 	// Add another normal segment
-	err = pm.AddSegment(SegmentMeta{
+	_, err = pm.AddSegment(SegmentMeta{
 		URI:      "seg-003.ts",
 		Duration: 4.0,
 	})
@@ -365,7 +365,7 @@ func TestPlaylistManager_MultipleDiscontinuities(t *testing.T) {
 		if item.setDiscontinuity {
 			pm.SetDiscontinuityNext()
 		}
-		err := pm.AddSegment(item.seg)
+		_, err := pm.AddSegment(item.seg)
 		require.NoError(t, err)
 	}
 
@@ -392,7 +392,7 @@ func TestPlaylistManager_AtomicWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add a segment
-	err = pm.AddSegment(SegmentMeta{
+	_, err = pm.AddSegment(SegmentMeta{
 		URI:      "seg-001.ts",
 		Duration: 4.0,
 	})
@@ -448,7 +448,7 @@ func TestPlaylistManager_ConcurrentOperations(t *testing.T) {
 					URI:      segmentName(goroutineID*segmentsPerGoroutine + j),
 					Duration: 4.0,
 				}
-				err := pm.AddSegment(seg)
+				_, err := pm.AddSegment(seg)
 				assert.NoError(t, err)
 			}
 		}(i)
@@ -486,7 +486,7 @@ func TestPlaylistManager_Close(t *testing.T) {
 
 	// Add segments
 	for i := 0; i < 3; i++ {
-		err := pm.AddSegment(SegmentMeta{
+		_, err := pm.AddSegment(SegmentMeta{
 			URI:      segmentName(i),
 			Duration: 4.0,
 		})
@@ -519,7 +519,7 @@ func TestPlaylistManager_ProgramDateTime(t *testing.T) {
 	programDateTime := time.Date(2025, 1, 11, 12, 0, 0, 0, time.UTC)
 
 	// Add segment with program date-time
-	err = pm.AddSegment(SegmentMeta{
+	_, err = pm.AddSegment(SegmentMeta{
 		URI:             "seg-001.ts",
 		Duration:        4.0,
 		ProgramDateTime: &programDateTime,
@@ -561,7 +561,7 @@ func TestPlaylistManager_GetCurrentSegments(t *testing.T) {
 	for i := 0; i < numSegments; i++ {
 		segName := segmentName(i)
 		expectedSegments[i] = segName
-		err := pm.AddSegment(SegmentMeta{
+		_, err := pm.AddSegment(SegmentMeta{
 			URI:      segName,
 			Duration: 4.0,
 		})
@@ -577,7 +577,7 @@ func TestPlaylistManager_GetCurrentSegments(t *testing.T) {
 
 	// Add more segments beyond window size
 	for i := numSegments; i < 10; i++ {
-		err := pm.AddSegment(SegmentMeta{
+		_, err := pm.AddSegment(SegmentMeta{
 			URI:      segmentName(i),
 			Duration: 4.0,
 		})
@@ -599,6 +599,155 @@ func TestPlaylistManager_GetCurrentSegments(t *testing.T) {
 		prunedSeg := segmentName(i)
 		assert.NotContains(t, segments, prunedSeg, "should not contain pruned segment %s", prunedSeg)
 	}
+}
+
+func TestPlaylistManager_PrunedSegmentURIs(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "playlist.m3u8")
+
+	windowSize := uint(6)
+	pm, err := NewManager(windowSize, outputPath, 4.0)
+	require.NoError(t, err)
+
+	// Add segments within window size (no pruning)
+	for i := 0; i < 5; i++ {
+		prunedURIs, err := pm.AddSegment(SegmentMeta{
+			URI:      segmentName(i),
+			Duration: 4.0,
+		})
+		require.NoError(t, err)
+		assert.Empty(t, prunedURIs, "no segments should be pruned when under window size")
+	}
+
+	// Add segment that triggers pruning (6th segment, windowSize=6)
+	prunedURIs, err := pm.AddSegment(SegmentMeta{
+		URI:      segmentName(5),
+		Duration: 4.0,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, prunedURIs, "no pruning when exactly at window size")
+
+	// Add segment that triggers pruning (7th segment)
+	prunedURIs, err = pm.AddSegment(SegmentMeta{
+		URI:      segmentName(6),
+		Duration: 4.0,
+	})
+	require.NoError(t, err)
+	require.Len(t, prunedURIs, 1, "should prune 1 segment")
+	assert.Equal(t, segmentName(0), prunedURIs[0], "should prune first segment")
+
+	// Add more segments to trigger multiple prunings
+	prunedURIs, err = pm.AddSegment(SegmentMeta{
+		URI:      segmentName(7),
+		Duration: 4.0,
+	})
+	require.NoError(t, err)
+	require.Len(t, prunedURIs, 1, "should prune 1 segment")
+	assert.Equal(t, segmentName(1), prunedURIs[0], "should prune second segment")
+}
+
+func TestPlaylistManager_MediaSequenceIncrements(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "playlist.m3u8")
+
+	windowSize := uint(6)
+	pm, err := NewManager(windowSize, outputPath, 4.0)
+	require.NoError(t, err)
+
+	// Initially media sequence should be 0
+	assert.Equal(t, uint64(0), pm.GetMediaSequence(), "media sequence should start at 0")
+
+	// Add segments within window size (no pruning, no increment)
+	for i := 0; i < 5; i++ {
+		_, err := pm.AddSegment(SegmentMeta{
+			URI:      segmentName(i),
+			Duration: 4.0,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, uint64(0), pm.GetMediaSequence(), "media sequence should stay 0 when no pruning")
+	}
+
+	// Add segment that triggers pruning
+	_, err = pm.AddSegment(SegmentMeta{
+		URI:      segmentName(5),
+		Duration: 4.0,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, uint64(0), pm.GetMediaSequence(), "media sequence should stay 0 when exactly at window size")
+
+	// Add segment that triggers pruning (should increment by 1)
+	_, err = pm.AddSegment(SegmentMeta{
+		URI:      segmentName(6),
+		Duration: 4.0,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), pm.GetMediaSequence(), "media sequence should increment by 1 after pruning 1 segment")
+
+	// Add another segment (should increment by 1 more)
+	_, err = pm.AddSegment(SegmentMeta{
+		URI:      segmentName(7),
+		Duration: 4.0,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, uint64(2), pm.GetMediaSequence(), "media sequence should increment by 1 after pruning another segment")
+}
+
+func TestPlaylistManager_VODModeNoPruning(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "playlist.m3u8")
+
+	// VOD/EVENT mode: windowSize = 0
+	pm, err := NewManager(0, outputPath, 4.0)
+	require.NoError(t, err)
+
+	// Add many segments
+	numSegments := 20
+	for i := 0; i < numSegments; i++ {
+		prunedURIs, err := pm.AddSegment(SegmentMeta{
+			URI:      segmentName(i),
+			Duration: 4.0,
+		})
+		require.NoError(t, err)
+		assert.Empty(t, prunedURIs, "no segments should be pruned in VOD mode")
+		assert.Equal(t, uint64(0), pm.GetMediaSequence(), "media sequence should stay 0 in VOD mode")
+	}
+
+	// Verify all segments are still present
+	segments := pm.GetCurrentSegments()
+	assert.Equal(t, numSegments, len(segments), "all segments should be present in VOD mode")
+	assert.Equal(t, uint64(0), pm.GetMediaSequence(), "media sequence should remain 0 in VOD mode")
+}
+
+func TestPlaylistManager_WindowSizeRespected(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "playlist.m3u8")
+
+	windowSize := uint(6)
+	pm, err := NewManager(windowSize, outputPath, 4.0)
+	require.NoError(t, err)
+
+	// Add segments beyond window size
+	numSegments := 15
+	for i := 0; i < numSegments; i++ {
+		_, err := pm.AddSegment(SegmentMeta{
+			URI:      segmentName(i),
+			Duration: 4.0,
+		})
+		require.NoError(t, err)
+
+		// After each addition, verify window size is respected
+		currentCount := pm.GetSegmentCount()
+		if i >= int(windowSize) {
+			// Once we exceed window size, should always have exactly windowSize segments
+			assert.Equal(t, windowSize, currentCount, "should have exactly windowSize segments after exceeding window")
+		} else {
+			// Before exceeding window size, should have i+1 segments
+			assert.Equal(t, uint(i+1), currentCount, "should have %d segments before exceeding window", i+1)
+		}
+	}
+
+	// Final verification
+	assert.Equal(t, windowSize, pm.GetSegmentCount(), "should have exactly windowSize segments")
 }
 
 // Helper functions
