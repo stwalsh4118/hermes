@@ -30,7 +30,7 @@ const (
 	defaultStreamingCleanupInterval     = 60
 	defaultStreamingEncodingPreset      = "ultrafast"
 	defaultStreamingBatchSize           = 10
-	defaultStreamingTriggerThreshold    = 7 // Trigger earlier to prevent buffer stalls (was 5)
+	defaultStreamingTriggerThreshold    = 3 // Trigger earlier to prevent buffer stalls (was 5)
 	defaultStreamSegmentDuration        = 4
 	defaultStreamSegmentFilenamePattern = "seg-%Y%m%dT%H%M%S.ts"
 	defaultFPS                          = 30
