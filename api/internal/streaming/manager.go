@@ -824,7 +824,8 @@ func (m *StreamManager) generateSingleSegment(
 	segmentProgramTime := sessionStartTime.Add(time.Duration(streamPositionSeconds) * time.Second)
 	seg.ProgramDateTime = &segmentProgramTime
 
-	if err := pm.AddSegment(seg); err != nil {
+	prunedURIs, err := pm.AddSegment(seg)
+	if err != nil {
 		logger.Log.Error().
 			Err(err).
 			Str("channel_id", channelIDStr).
@@ -832,6 +833,8 @@ func (m *StreamManager) generateSingleSegment(
 			Msg("Failed to add segment to playlist")
 		return fmt.Errorf("failed to add segment to playlist: %w", err)
 	}
+	// TODO: Delete pruned segment files from disk (task 14-7)
+	_ = prunedURIs // Suppress unused variable warning until task 14-7 implements file deletion
 
 	// Write playlist to disk
 	if err := pm.Write(); err != nil {
