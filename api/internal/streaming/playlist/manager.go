@@ -64,10 +64,8 @@ const (
 )
 
 // NewManager creates a new playlist manager instance
+// windowSize: 0 = VOD/EVENT (no sliding window, keep all segments), >0 = live sliding window
 func NewManager(windowSize uint, outputPath string, initialTargetDuration float64) (Manager, error) {
-	if windowSize == 0 {
-		return nil, fmt.Errorf("window size must be greater than 0")
-	}
 	if outputPath == "" {
 		return nil, fmt.Errorf("output path cannot be empty")
 	}
@@ -77,8 +75,13 @@ func NewManager(windowSize uint, outputPath string, initialTargetDuration float6
 
 	// Create media playlist with window size and capacity
 	// winsize: sliding window size (0 = VOD/EVENT, >0 = live sliding window)
-	// capacity: initial capacity of segment list
-	playlist, err := m3u8.NewMediaPlaylist(windowSize, defaultCapacity)
+	// capacity: initial capacity of segment list (use large capacity when windowSize is 0)
+	capacity := uint(defaultCapacity)
+	if windowSize == 0 {
+		// For VOD/EVENT mode (no sliding window), use a larger capacity to hold all segments
+		capacity = 10000 // Large capacity for unlimited segments
+	}
+	playlist, err := m3u8.NewMediaPlaylist(windowSize, capacity)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create media playlist: %w", err)
 	}
@@ -139,8 +142,31 @@ func (pm *playlistManager) AddSegment(seg SegmentMeta) error {
 		pm.discontinuityNext = false
 	}
 
+	// Get current segment count before appending
+	currentCount := pm.playlist.Count()
+
+	// Prune old segments only if window size > 0 (sliding window mode)
+	// When windowSize is 0 (VOD/EVENT mode), keep all segments (no pruning)
+	if pm.windowSize > 0 {
+		// Prune old segments if we're at or above window size (before buffer fills up)
+		// This prevents "playlist full" errors by ensuring we always have room
+		// The library's AppendSegment doesn't auto-prune like Slide() does, so we do it manually
+		if currentCount >= pm.windowSize {
+			// Remove oldest segment to make room for new one
+			// This mimics what the library's Slide() function does
+			if err := pm.playlist.Remove(); err != nil {
+				// If Remove fails, we might be at capacity - try to append anyway
+				// The AppendSegment will return ErrPlaylistFull if buffer is truly full
+				logger.Log.Warn().
+					Err(err).
+					Uint("current_count", currentCount).
+					Uint("window_size", pm.windowSize).
+					Msg("Failed to remove old segment before appending (buffer may be full)")
+			}
+		}
+	}
+
 	// Append segment to playlist
-	// The library handles sliding window automatically
 	err := pm.playlist.AppendSegment(mediaSeg)
 	if err != nil {
 		return fmt.Errorf("failed to append segment %s: %w", seg.URI, err)
@@ -150,7 +176,8 @@ func (pm *playlistManager) AddSegment(seg SegmentMeta) error {
 	// SeqNo represents the sequence number of the first segment in the playlist
 	// When window size is exceeded, oldest segments are pruned
 	// SeqNo should be the SeqId of the first segment remaining
-	currentCount := pm.playlist.Count()
+	// Re-read count after append (it may have changed due to pruning)
+	currentCount = pm.playlist.Count()
 	currentWindowSize := uint(currentCount)
 	if pm.totalSegments > uint64(currentCount) {
 		// Segments have been pruned, update SeqNo to first remaining segment's SeqId
