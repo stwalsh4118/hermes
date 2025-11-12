@@ -34,8 +34,7 @@ func TestNewManager(t *testing.T) {
 			windowSize:            0,
 			outputPath:            "/tmp/test.m3u8",
 			initialTargetDuration: 4.0,
-			wantErr:               true,
-			errContains:           "window size must be greater than 0",
+			wantErr:               false, // Window size 0 is now allowed (VOD/EVENT mode)
 		},
 		{
 			name:                  "empty output path",
