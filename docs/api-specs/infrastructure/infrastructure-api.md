@@ -718,6 +718,8 @@ type Manager interface {
     GetWindowSize() uint
     GetMaxDuration() float64
     HealthCheck(staleThreshold time.Duration) HealthStatus
+    GetMediaSequence() uint64
+    GetSegmentCount() uint
 }
 ```
 

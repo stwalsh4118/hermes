@@ -2786,6 +2786,8 @@ type Manager interface {
     GetWindowSize() uint
     GetMaxDuration() float64
     HealthCheck(staleThreshold time.Duration) HealthStatus
+    GetMediaSequence() uint64  // Returns current media sequence number
+    GetSegmentCount() uint     // Returns number of segments currently in playlist
 }
 
 type SegmentMeta struct {
@@ -2936,6 +2938,28 @@ Returns the maximum observed segment duration.
 
 **Returns:**
 - `float64`: Maximum segment duration in seconds
+
+### GetMediaSequence
+
+```go
+func (m Manager) GetMediaSequence() uint64
+```
+
+Returns the current media sequence number. Starts at 0 and increments when segments are pruned in sliding window mode.
+
+**Returns:**
+- `uint64`: Current media sequence number
+
+### GetSegmentCount
+
+```go
+func (m Manager) GetSegmentCount() uint
+```
+
+Returns the number of segments currently in the playlist.
+
+**Returns:**
+- `uint`: Number of segments in playlist (may be less than total segments added if pruning occurred)
 
 ### HealthCheck
 
