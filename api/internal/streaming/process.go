@@ -185,12 +185,6 @@ func captureFFmpegOutput(pid int, reader io.Reader, streamName string) {
 				Str("stream", streamName).
 				Str("output", line).
 				Msg("FFmpeg error")
-		} else {
-			logger.Log.Debug().
-				Int("ffmpeg_pid", pid).
-				Str("stream", streamName).
-				Str("output", line).
-				Msg("FFmpeg output")
 		}
 	}
 

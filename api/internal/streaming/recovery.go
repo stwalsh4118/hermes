@@ -152,10 +152,9 @@ func (m *StreamManager) restartStream(ctx context.Context, channelID uuid.UUID, 
 	newSession.ResetRestartCount()
 	circuitBreaker.RecordSuccess()
 
-	// TODO: When segment watchers are integrated into stream manager, call watcher.MarkDiscontinuity()
-	// here to signal that the encoder has restarted and the next segment should have a discontinuity tag.
-	// This ensures seamless client recovery after encoder restarts.
-	// Example: if watcher := m.getWatcherForChannel(channelID); watcher != nil { watcher.MarkDiscontinuity() }
+	// Discontinuities are handled automatically in generateNextBatch() and initializeFirstBatch()
+	// when videos switch. If recovery restarts the stream, discontinuities are handled by
+	// the batch generation logic.
 
 	logger.Log.Info().
 		Str("channel_id", channelIDStr).
