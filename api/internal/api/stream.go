@@ -24,6 +24,7 @@ type streamManager interface {
 	RegisterClient(ctx context.Context, channelID uuid.UUID) (*models.StreamSession, error)
 	UnregisterClient(ctx context.Context, channelID uuid.UUID) error
 	GetStream(channelID uuid.UUID) (*models.StreamSession, bool)
+	GetTriggerThreshold() int // Returns the configured trigger threshold
 }
 
 // validQualities defines the allowed quality levels for streaming
@@ -672,6 +673,90 @@ func (h *StreamHandler) UpdatePosition(c *gin.Context) {
 	})
 }
 
+// GetBatchDebug handles GET /stream/:channel_id/debug
+// Returns detailed batch generation state for debugging and visualization
+func (h *StreamHandler) GetBatchDebug(c *gin.Context) {
+	channelIDStr := c.Param("channel_id")
+
+	// Validate UUID
+	channelID, err := uuid.Parse(channelIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "invalid_id",
+			Message: "Invalid channel ID format",
+		})
+		return
+	}
+
+	// Get stream session
+	session, found := h.streamManager.GetStream(channelID)
+	if !found {
+		c.JSON(http.StatusNotFound, ErrorResponse{
+			Error:   "stream_not_found",
+			Message: "Stream not found or not active",
+		})
+		return
+	}
+
+	// Get current batch
+	currentBatch := session.GetCurrentBatch()
+	furthestSegment := session.GetFurthestPosition()
+	clientCount := session.GetClientCount()
+	clientPositions := session.GetClientPositions()
+	triggerThreshold := h.streamManager.GetTriggerThreshold()
+
+	// Build response
+	response := gin.H{
+		"channel_id":        channelID.String(),
+		"client_count":      clientCount,
+		"furthest_segment":  furthestSegment,
+		"has_batch":         currentBatch != nil,
+		"trigger_threshold": triggerThreshold,
+	}
+
+	// Add batch details if available
+	if currentBatch != nil {
+		segmentsRemaining := currentBatch.EndSegment - furthestSegment
+		if segmentsRemaining < 0 {
+			segmentsRemaining = 0
+		}
+
+		response["batch"] = gin.H{
+			"batch_number":       currentBatch.BatchNumber,
+			"start_segment":      currentBatch.StartSegment,
+			"end_segment":        currentBatch.EndSegment,
+			"is_complete":        currentBatch.IsComplete,
+			"segments_remaining": segmentsRemaining,
+			"video_source_path":  currentBatch.VideoSourcePath,
+			"video_start_offset": currentBatch.VideoStartOffset,
+			"generation_started": currentBatch.GenerationStarted,
+			"generation_ended":   currentBatch.GenerationEnded,
+		}
+
+		// Calculate generation time if complete
+		if currentBatch.IsComplete && !currentBatch.GenerationEnded.IsZero() {
+			generationTime := currentBatch.GenerationEnded.Sub(currentBatch.GenerationStarted)
+			response["batch"].(gin.H)["generation_duration_seconds"] = generationTime.Seconds()
+		}
+	} else {
+		response["batch"] = nil
+	}
+
+	// Add client positions
+	positions := make([]gin.H, 0, len(clientPositions))
+	for sessionID, pos := range clientPositions {
+		positions = append(positions, gin.H{
+			"session_id":     sessionID,
+			"segment_number": pos.SegmentNumber,
+			"quality":        pos.Quality,
+			"last_updated":   pos.LastUpdated,
+		})
+	}
+	response["client_positions"] = positions
+
+	c.JSON(http.StatusOK, response)
+}
+
 // SetupStreamRoutes registers streaming-related routes
 func SetupStreamRoutes(apiGroup *gin.RouterGroup, manager *streaming.StreamManager) {
 	handler := NewStreamHandler(manager)
@@ -683,6 +768,7 @@ func SetupStreamRoutes(apiGroup *gin.RouterGroup, manager *streaming.StreamManag
 	streamGroup.GET("/:channel_id/master.m3u8", handler.GetMasterPlaylist)
 	streamGroup.DELETE("/:channel_id/client", handler.UnregisterClient)
 	streamGroup.POST("/:channel_id/position", handler.UpdatePosition)
+	streamGroup.GET("/:channel_id/debug", handler.GetBatchDebug) // Debug endpoint
 	// More specific route (3 segments) must come before less specific (2 segments)
 	streamGroup.GET("/:channel_id/:quality/:segment", handler.GetSegment)
 	streamGroup.GET("/:channel_id/:quality", handler.GetMediaPlaylist)

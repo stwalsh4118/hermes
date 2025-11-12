@@ -21,10 +21,11 @@ import (
 
 // mockStreamManager is a test helper that implements streamManager interface
 type mockStreamManager struct {
-	startStreamFunc      func(ctx context.Context, channelID uuid.UUID) (*models.StreamSession, error)
-	registerClientFunc   func(ctx context.Context, channelID uuid.UUID) (*models.StreamSession, error)
-	unregisterClientFunc func(ctx context.Context, channelID uuid.UUID) error
-	getStreamFunc        func(channelID uuid.UUID) (*models.StreamSession, bool)
+	startStreamFunc         func(ctx context.Context, channelID uuid.UUID) (*models.StreamSession, error)
+	registerClientFunc      func(ctx context.Context, channelID uuid.UUID) (*models.StreamSession, error)
+	unregisterClientFunc    func(ctx context.Context, channelID uuid.UUID) error
+	getStreamFunc           func(channelID uuid.UUID) (*models.StreamSession, bool)
+	getTriggerThresholdFunc func() int
 }
 
 func (m *mockStreamManager) StartStream(ctx context.Context, channelID uuid.UUID) (*models.StreamSession, error) {
@@ -53,6 +54,13 @@ func (m *mockStreamManager) GetStream(channelID uuid.UUID) (*models.StreamSessio
 		return m.getStreamFunc(channelID)
 	}
 	return nil, false
+}
+
+func (m *mockStreamManager) GetTriggerThreshold() int {
+	if m.getTriggerThresholdFunc != nil {
+		return m.getTriggerThresholdFunc()
+	}
+	return 7 // Default value for tests
 }
 
 // setupStreamTestRouter creates a test Gin router with stream routes

@@ -356,6 +356,23 @@ func (s *StreamSession) GetFurthestPosition() int {
 	return s.FurthestSegment
 }
 
+// GetClientPositions returns all client positions (thread-safe)
+// Returns a copy to prevent external modification
+func (s *StreamSession) GetClientPositions() map[string]*ClientPosition {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	positions := make(map[string]*ClientPosition, len(s.ClientPositions))
+	for k, v := range s.ClientPositions {
+		positions[k] = &ClientPosition{
+			SessionID:     v.SessionID,
+			SegmentNumber: v.SegmentNumber,
+			Quality:       v.Quality,
+			LastUpdated:   v.LastUpdated,
+		}
+	}
+	return positions
+}
+
 // ShouldGenerateNextBatch returns true if the next batch should be generated (thread-safe)
 // Returns false if no batch exists, batch is not complete, or segments remaining > threshold
 func (s *StreamSession) ShouldGenerateNextBatch(threshold int) bool {

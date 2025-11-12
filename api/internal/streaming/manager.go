@@ -1367,6 +1367,13 @@ func (m *StreamManager) getPlaylistManager(session *models.StreamSession, qualit
 	return pm, nil
 }
 
+// GetTriggerThreshold returns the configured trigger threshold for batch generation
+func (m *StreamManager) GetTriggerThreshold() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.config.TriggerThreshold
+}
+
 // generateMasterPlaylist generates the HLS master playlist file for a stream
 func (m *StreamManager) generateMasterPlaylist(outputDir string, qualities []models.StreamQuality) error {
 	// Convert StreamQuality to PlaylistVariant
