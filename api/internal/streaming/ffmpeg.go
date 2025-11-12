@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Quality level constants
@@ -59,7 +60,8 @@ type StreamParams struct {
 	OutputPath             string        // Full path to output .m3u8 playlist (HLS mode) or segment directory (stream_segment mode)
 	Quality                string        // Quality level (1080p, 720p, 480p)
 	HardwareAccel          HardwareAccel // Hardware acceleration method
-	SeekSeconds            int64         // Starting position in seconds (0 = beginning)
+	SeekSeconds            int64         // Starting position in seconds (0 = beginning) - position within current video file
+	StreamPositionSeconds  int64         // Cumulative stream position in seconds (segmentNumber * segmentDuration) - for PTS timestamps
 	SegmentDuration        int           // HLS segment duration in seconds
 	PlaylistSize           int           // Number of segments to keep in playlist
 	EncodingPreset         string        // FFmpeg encoding preset (ultrafast, veryfast, medium, slow)
@@ -190,9 +192,11 @@ func validateStreamParams(params StreamParams) error {
 		return ErrEmptyInputFile
 	}
 
-	// Validate output path
-	if params.OutputPath == "" {
-		return ErrEmptyOutputPath
+	// Validate output path (only required when NOT in stream_segment mode)
+	if !params.StreamSegmentMode {
+		if params.OutputPath == "" {
+			return ErrEmptyOutputPath
+		}
 	}
 
 	// Validate segment duration
@@ -200,9 +204,11 @@ func validateStreamParams(params StreamParams) error {
 		return ErrInvalidSegmentDuration
 	}
 
-	// Validate playlist size
-	if params.PlaylistSize <= 0 {
-		return ErrInvalidPlaylistSize
+	// Validate playlist size (only required when NOT in stream_segment mode)
+	if !params.StreamSegmentMode {
+		if params.PlaylistSize <= 0 {
+			return ErrInvalidPlaylistSize
+		}
 	}
 
 	// Validate seek seconds
@@ -240,9 +246,11 @@ func buildInputArgs(params StreamParams) []string {
 		args = append(args, "-ss", strconv.FormatInt(params.SeekSeconds, 10))
 	}
 
-	// Add infinite loop for 24/7 channel behavior only if not in batch mode
-	// Batch mode generates fixed number of segments then exits
-	if !params.BatchMode {
+	// Add infinite loop only for continuous streaming (not batch mode, not single segment mode)
+	// When StreamSegmentMode is true and BatchMode is false, we're generating a single segment
+	// so we don't want infinite looping - the -t duration limit will handle stopping
+	if !params.BatchMode && !params.StreamSegmentMode {
+		// Only add loop for non-segment mode continuous streaming
 		args = append(args, "-stream_loop", "-1")
 	}
 
@@ -333,35 +341,46 @@ func buildHLSArgs(params StreamParams) []string {
 		// No hls_playlist_type - allows sliding window of recent segments
 	}
 
-	// Add duration limit for batch mode (generates exactly BatchSize segments then exits)
-	if params.BatchMode && params.BatchSize > 0 {
-		totalSeconds := params.BatchSize * params.SegmentDuration
-		args = append(args, "-t", strconv.Itoa(totalSeconds))
-	}
-
 	return args
 }
 
-// buildStreamSegmentArgs builds stream_segment muxer output arguments
+// buildStreamSegmentArgs builds output arguments for single segment generation
+// Uses -f mpegts to output a single TS file
 func buildStreamSegmentArgs(params StreamParams) []string {
-	// Build output path: {SegmentOutputDir}/{SegmentFilenamePattern}
-	outputPattern := filepath.Join(params.SegmentOutputDir, params.SegmentFilenamePattern)
-
+	// Single segment mode: use simple mpegts muxer for one file
+	// Generate filename with current timestamp including milliseconds for uniqueness
+	// Format: seg-YYYYMMDDTHHMMSS.mmm.ts (e.g., seg-20251111T184324.123.ts)
+	now := time.Now()
+	filename := fmt.Sprintf("seg-%s.%03d.ts",
+		now.Format("20060102T150405"),
+		now.Nanosecond()/1000000) // Convert nanoseconds to milliseconds
+	outputPath := filepath.Join(params.SegmentOutputDir, filename)
+	// Build args list
+	// Use -output_ts_offset to set proper PTS timestamps for sequential buffering
+	// When seeking with -ss, FFmpeg resets timestamps to 0, but we need sequential PTS
+	// so HLS.js can buffer segments sequentially instead of overwriting them
+	// The offset should be the segment's position in the timeline (offsetSeconds)
 	args := []string{
-		"-f", "stream_segment",
-		"-segment_time", strconv.Itoa(params.SegmentDuration),
-		"-segment_format", "mpegts",
-		"-strftime", "1",
-		"-segment_atclocktime", "0", // Don't align to clock boundaries
-		"-reset_timestamps", "0", // Maintain timestamps
-		outputPattern,
+		"-t", strconv.Itoa(params.SegmentDuration),
+		"-f", "mpegts",
 	}
 
-	// Add duration limit for batch mode (generates exactly BatchSize segments then exits)
-	if params.BatchMode && params.BatchSize > 0 {
-		totalSeconds := params.BatchSize * params.SegmentDuration
-		args = append(args, "-t", strconv.Itoa(totalSeconds))
+	// Add timestamp offset based on cumulative stream position
+	// This ensures each segment has sequential PTS values (0-4s, 4-8s, 8-12s, etc.)
+	// which allows HLS.js to buffer them sequentially instead of overwriting
+	// Use StreamPositionSeconds for cumulative stream timeline (segmentNumber * segmentDuration)
+	// This ensures consistent timestamps even when switching between video files
+	// -output_ts_offset expects seconds (not 90kHz PTS units)
+	tsOffset := params.StreamPositionSeconds
+	// If StreamPositionSeconds is not set (0 and SeekSeconds was used), use SeekSeconds as fallback
+	// But in our current implementation, StreamPositionSeconds is always set
+	if tsOffset == 0 && params.SeekSeconds > 0 {
+		tsOffset = params.SeekSeconds
 	}
+	args = append(args, "-output_ts_offset", strconv.FormatInt(tsOffset, 10))
+
+	// Output path must be last
+	args = append(args, outputPath)
 
 	return args
 }
