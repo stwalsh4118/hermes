@@ -3,14 +3,11 @@ package playlist
 
 import (
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/Eyevinn/hls-m3u8/m3u8"
 	"github.com/stwalsh4118/hermes/internal/logger"
 )
 
@@ -32,7 +29,9 @@ type HealthStatus struct {
 	StaleThreshold     time.Duration // Threshold for considering playlist stale
 }
 
-// Manager manages a sliding-window HLS media playlist
+// Manager manages a sliding-window HLS media playlist.
+// Provides full control over playlist generation with manual segment tracking
+// and sliding window management.
 type Manager interface {
 	AddSegment(seg SegmentMeta) error
 	SetDiscontinuityNext()
@@ -43,28 +42,79 @@ type Manager interface {
 	GetWindowSize() uint
 	GetMaxDuration() float64
 	HealthCheck(staleThreshold time.Duration) HealthStatus
+	// GetMediaSequence returns the current media sequence number.
+	// Media sequence starts at 0 and increments by 1 for each segment pruned
+	// from the front of the playlist (when windowSize > 0).
+	// For VOD/EVENT mode (windowSize == 0), media sequence stays at 0.
+	GetMediaSequence() uint64
+	// GetSegmentCount returns the total number of segments currently in the playlist.
+	// This is the length of the segments slice, which may be less than totalSegments
+	// if segments have been pruned in sliding window mode.
+	GetSegmentCount() uint
 }
 
-// playlistManager implements Manager using hls-m3u8 library
+// playlistManager implements Manager using simple Go data structures.
+// This replaces the buggy hls-m3u8 library with a custom implementation
+// that provides full control over playlist generation.
+//
+// Thread-Safety:
+//   - All field access is protected by sync.RWMutex
+//   - Read operations use RLock()/RUnlock()
+//   - Write operations use Lock()/Unlock()
+//   - File I/O operations release lock before performing I/O to avoid blocking
+//
+// Modes:
+//   - VOD/EVENT mode (windowSize == 0): Keeps all segments, no pruning, media sequence stays at 0
+//   - Live mode (windowSize > 0): Sliding window that prunes old segments, media sequence increments on prune
+//
+// Media Sequence Tracking:
+//   - Starts at 0
+//   - When windowSize > 0 and segments are pruned (removed from front), mediaSequence increments
+//     by the number of segments removed
+//   - Formula: mediaSequence = totalSegments - len(segments) when pruning occurs
+//   - For VOD/EVENT mode, media sequence stays at 0 (no pruning)
+//
+// Sliding Window Behavior:
+//   - When len(segments) >= windowSize, oldest segments are removed from front
+//   - Pruning happens automatically in AddSegment when window size is exceeded
+//   - Media sequence is updated to reflect the first remaining segment's sequence number
 type playlistManager struct {
-	mu                  sync.RWMutex
-	playlist            *m3u8.MediaPlaylist
-	outputPath          string
-	windowSize          uint
-	maxDuration         float64
-	discontinuityNext   bool
-	totalSegments       uint64     // Track total segments added for SeqNo calculation
-	lastSuccessfulWrite *time.Time // Track last successful write timestamp for health checks
+	mu sync.RWMutex // Thread-safety mutex for all field access
+
+	// segments is a simple slice of SegmentMeta that we control manually.
+	// For VOD/EVENT mode (windowSize == 0), all segments are kept.
+	// For live mode (windowSize > 0), segments beyond windowSize are pruned from front.
+	segments []SegmentMeta
+
+	outputPath string // Full path to output .m3u8 file
+	segmentDir string // Directory path where segments are stored (for file cleanup operations)
+
+	windowSize  uint    // Number of segments to keep in sliding window (0 = VOD/EVENT, >0 = live)
+	maxDuration float64 // Maximum observed segment duration (for TARGETDURATION calculation)
+
+	// mediaSequence tracks the media sequence number manually.
+	// Starts at 0, increments by 1 for each segment pruned from the front.
+	// For VOD/EVENT mode, stays at 0 since no pruning occurs.
+	mediaSequence uint64
+
+	// totalSegments tracks the total count of segments ever added.
+	// Used for sequence number calculation: mediaSequence = totalSegments - len(segments)
+	totalSegments uint64
+
+	discontinuityNext   bool       // Flag to insert discontinuity tag before next segment
+	lastSuccessfulWrite *time.Time // Timestamp of last successful playlist write (for health checks)
 }
 
-const (
-	// defaultCapacity is the initial capacity for the segment list
-	// Should be larger than windowSize to avoid frequent reallocations
-	defaultCapacity = 100
-)
-
-// NewManager creates a new playlist manager instance
-// windowSize: 0 = VOD/EVENT (no sliding window, keep all segments), >0 = live sliding window
+// NewManager creates a new playlist manager instance.
+//
+// Parameters:
+//   - windowSize: 0 = VOD/EVENT mode (no sliding window, keep all segments), >0 = live sliding window mode
+//   - outputPath: Full path to output .m3u8 file
+//   - initialTargetDuration: Initial target duration in seconds (must be > 0)
+//
+// The segmentDir is derived from outputPath by taking the directory portion.
+// This maintains backward compatibility with existing callers.
+// Future tasks may add an explicit segmentDir parameter if needed.
 func NewManager(windowSize uint, outputPath string, initialTargetDuration float64) (Manager, error) {
 	if outputPath == "" {
 		return nil, fmt.Errorf("output path cannot be empty")
@@ -73,36 +123,26 @@ func NewManager(windowSize uint, outputPath string, initialTargetDuration float6
 		return nil, fmt.Errorf("initial target duration must be greater than 0")
 	}
 
-	// Create media playlist with window size and capacity
-	// winsize: sliding window size (0 = VOD/EVENT, >0 = live sliding window)
-	// capacity: initial capacity of segment list (use large capacity when windowSize is 0)
-	capacity := uint(defaultCapacity)
-	if windowSize == 0 {
-		// For VOD/EVENT mode (no sliding window), use a larger capacity to hold all segments
-		capacity = 10000 // Large capacity for unlimited segments
-	}
-	playlist, err := m3u8.NewMediaPlaylist(windowSize, capacity)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create media playlist: %w", err)
-	}
-
-	// Set initial media sequence (starts at 0)
-	playlist.SeqNo = 0
-
-	// Set initial target duration (convert float64 to uint as library expects)
-	playlist.TargetDuration = uint(math.Ceil(initialTargetDuration))
+	// Derive segmentDir from outputPath for backward compatibility
+	// This is the directory where segment files are stored (for cleanup operations)
+	segmentDir := filepath.Dir(outputPath)
 
 	return &playlistManager{
-		playlist:          playlist,
-		outputPath:        outputPath,
-		windowSize:        windowSize,
-		maxDuration:       initialTargetDuration,
-		discontinuityNext: false,
-		totalSegments:     0,
+		segments:            make([]SegmentMeta, 0),
+		outputPath:          outputPath,
+		segmentDir:          segmentDir,
+		windowSize:          windowSize,
+		maxDuration:         initialTargetDuration,
+		mediaSequence:       0, // Starts at 0
+		totalSegments:       0, // No segments added yet
+		discontinuityNext:   false,
+		lastSuccessfulWrite: nil, // No write has occurred yet
 	}, nil
 }
 
-// AddSegment adds a new segment to the playlist
+// AddSegment adds a new segment to the playlist.
+// TODO: Full implementation with sliding window logic and file cleanup will be completed in task 14-2.
+// This is a minimal implementation for the design phase.
 func (pm *playlistManager) AddSegment(seg SegmentMeta) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -114,90 +154,26 @@ func (pm *playlistManager) AddSegment(seg SegmentMeta) error {
 		return fmt.Errorf("segment duration must be greater than 0")
 	}
 
-	// Update max duration and target duration if needed
+	// Update max duration if needed
 	if seg.Duration > pm.maxDuration {
 		pm.maxDuration = seg.Duration
-		pm.playlist.TargetDuration = uint(math.Ceil(pm.maxDuration))
 	}
 
-	// Increment total segments added (do this before creating segment)
+	// Increment total segments added
 	pm.totalSegments++
 
-	// Create media segment with sequence ID
-	mediaSeg := &m3u8.MediaSegment{
-		SeqId:         pm.totalSegments - 1, // SeqId is 0-indexed
-		URI:           seg.URI,
-		Duration:      seg.Duration,
-		Title:         "", // Empty title for now
-		Discontinuity: pm.discontinuityNext || seg.Discontinuity,
-	}
-
-	// Set program date-time if provided
-	if seg.ProgramDateTime != nil {
-		mediaSeg.ProgramDateTime = *seg.ProgramDateTime
-	}
-
-	// Clear discontinuity flag after use
+	// Apply discontinuity flag if set
+	seg.Discontinuity = pm.discontinuityNext || seg.Discontinuity
 	if pm.discontinuityNext {
 		pm.discontinuityNext = false
 	}
 
-	// Get current segment count before appending
-	currentCount := pm.playlist.Count()
+	// Add segment to slice
+	pm.segments = append(pm.segments, seg)
 
-	// Prune old segments only if window size > 0 (sliding window mode)
-	// When windowSize is 0 (VOD/EVENT mode), keep all segments (no pruning)
-	if pm.windowSize > 0 {
-		// Prune old segments if we're at or above window size (before buffer fills up)
-		// This prevents "playlist full" errors by ensuring we always have room
-		// The library's AppendSegment doesn't auto-prune like Slide() does, so we do it manually
-		if currentCount >= pm.windowSize {
-			// Remove oldest segment to make room for new one
-			// This mimics what the library's Slide() function does
-			if err := pm.playlist.Remove(); err != nil {
-				// If Remove fails, we might be at capacity - try to append anyway
-				// The AppendSegment will return ErrPlaylistFull if buffer is truly full
-				logger.Log.Warn().
-					Err(err).
-					Uint("current_count", currentCount).
-					Uint("window_size", pm.windowSize).
-					Msg("Failed to remove old segment before appending (buffer may be full)")
-			}
-		}
-	}
-
-	// Append segment to playlist
-	err := pm.playlist.AppendSegment(mediaSeg)
-	if err != nil {
-		return fmt.Errorf("failed to append segment %s: %w", seg.URI, err)
-	}
-
-	// Update media sequence to reflect pruned segments
-	// SeqNo represents the sequence number of the first segment in the playlist
-	// When window size is exceeded, oldest segments are pruned
-	// SeqNo should be the SeqId of the first segment remaining
-	// Re-read count after append (it may have changed due to pruning)
-	currentCount = pm.playlist.Count()
-	currentWindowSize := uint(currentCount)
-	if pm.totalSegments > uint64(currentCount) {
-		// Segments have been pruned, update SeqNo to first remaining segment's SeqId
-		pm.playlist.SeqNo = pm.totalSegments - uint64(currentCount)
-	} else {
-		// No pruning, SeqNo should be 0 (first segment)
-		pm.playlist.SeqNo = 0
-	}
-
-	// Log segment addition with observability metrics
-	logger.Log.Info().
-		Str("segment_uri", seg.URI).
-		Float64("segment_duration", seg.Duration).
-		Uint64("segment_seq", pm.totalSegments-1).
-		Uint64("media_sequence", pm.playlist.SeqNo).
-		Uint("window_size", currentWindowSize).
-		Uint("target_duration", pm.playlist.TargetDuration).
-		Float64("max_duration", pm.maxDuration).
-		Bool("discontinuity", pm.discontinuityNext || seg.Discontinuity).
-		Msg("Segment added to playlist")
+	// TODO: Implement sliding window pruning logic in task 14-2
+	// When windowSize > 0 and len(segments) >= windowSize, prune from front
+	// and update mediaSequence accordingly
 
 	return nil
 }
@@ -213,41 +189,15 @@ func (pm *playlistManager) SetDiscontinuityNext() {
 		Msg("Discontinuity flag set for next segment")
 }
 
-// Write writes the playlist to disk atomically
+// Write writes the playlist to disk atomically using temp file + rename pattern.
+// TODO: Full implementation with direct m3u8 text generation will be completed in task 14-3.
+// This is a minimal implementation for the design phase.
 func (pm *playlistManager) Write() error {
-	writeStartTime := time.Now()
-
-	pm.mu.Lock()
-
-	// Ensure SeqNo is up to date before encoding
-	// SeqNo represents the sequence number of the first segment in the playlist
-	// After pruning, SeqNo = totalSegments - currentCount
-	currentCount := pm.playlist.Count()
-	currentWindowSize := uint(currentCount)
-	if pm.totalSegments > uint64(currentCount) {
-		// Segments have been pruned
-		pm.playlist.SeqNo = pm.totalSegments - uint64(currentCount)
-	} else {
-		// No pruning, SeqNo starts at 0
-		pm.playlist.SeqNo = 0
-	}
-
-	// Encode playlist to m3u8 format (returns *bytes.Buffer)
-	buf := pm.playlist.Encode()
-	if buf == nil {
-		pm.mu.Unlock()
-		return fmt.Errorf("failed to encode playlist")
-	}
-	content := buf.Bytes()
-
+	pm.mu.RLock()
 	// Store values needed after lock release
 	outputPath := pm.outputPath
-	seqNo := pm.playlist.SeqNo
-	segCount := pm.playlist.Count()
-	maxDuration := pm.maxDuration
-
-	// Release lock before file I/O operations (file I/O can be slow)
-	pm.mu.Unlock()
+	segmentCount := len(pm.segments)
+	pm.mu.RUnlock()
 
 	// Create directory if it doesn't exist
 	dir := filepath.Dir(outputPath)
@@ -255,14 +205,14 @@ func (pm *playlistManager) Write() error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Create temp file in same directory
+	// TODO: Generate m3u8 format directly as text in task 14-3
+	// For now, create empty file as placeholder
 	tempFile, err := os.CreateTemp(dir, ".playlist-*.tmp")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 	tempPath := tempFile.Name()
 
-	// Ensure cleanup on error
 	defer func() {
 		if tempFile != nil {
 			_ = tempFile.Close()
@@ -270,58 +220,32 @@ func (pm *playlistManager) Write() error {
 		}
 	}()
 
-	// Write content
-	if _, err := tempFile.Write(content); err != nil {
+	// Write placeholder content
+	placeholder := fmt.Sprintf("#EXTM3U\n#EXT-X-VERSION:3\n# TODO: Full playlist generation in task 14-3 (segments: %d)\n", segmentCount)
+	if _, err := tempFile.WriteString(placeholder); err != nil {
 		return fmt.Errorf("failed to write content: %w", err)
 	}
 
-	// Sync to disk
 	if err := tempFile.Sync(); err != nil {
 		return fmt.Errorf("failed to sync file: %w", err)
 	}
 
-	// Close temp file
 	if err := tempFile.Close(); err != nil {
 		return fmt.Errorf("failed to close temp file: %w", err)
 	}
 
-	// Atomic rename (POSIX systems)
+	// Atomic rename
 	if err := os.Rename(tempPath, outputPath); err != nil {
 		return fmt.Errorf("failed to rename file: %w", err)
 	}
 
-	// Success - prevent cleanup
 	tempFile = nil
-
-	// Calculate write latency
-	writeLatencyMs := time.Since(writeStartTime).Milliseconds()
 
 	// Update last successful write timestamp
 	pm.mu.Lock()
 	now := time.Now()
 	pm.lastSuccessfulWrite = &now
 	pm.mu.Unlock()
-
-	// Log playlist write with observability metrics
-	logger.Log.Info().
-		Str("path", outputPath).
-		Int("bytes", len(content)).
-		Uint64("media_sequence", seqNo).
-		Uint("window_size", currentWindowSize).
-		Uint("segments", segCount).
-		Float64("max_duration", maxDuration).
-		Uint("target_duration", pm.playlist.TargetDuration).
-		Int64("write_latency_ms", writeLatencyMs).
-		Time("last_write_time", now).
-		Msg("Playlist written atomically")
-
-	// Warn if write latency is high (>100ms)
-	if writeLatencyMs > 100 {
-		logger.Log.Warn().
-			Str("path", outputPath).
-			Int64("write_latency_ms", writeLatencyMs).
-			Msg("Playlist write latency higher than expected")
-	}
 
 	return nil
 }
@@ -343,33 +267,20 @@ func (pm *playlistManager) Close() error {
 	return nil
 }
 
-// GetCurrentSegments returns the list of segment URIs currently in the playlist window
+// GetCurrentSegments returns the list of segment URIs currently in the playlist window.
+// TODO: Full implementation will be completed in task 14-4.
+// For now, returns segment URIs from the segments slice.
 func (pm *playlistManager) GetCurrentSegments() []string {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
-	count := pm.playlist.Count()
-	if count == 0 {
+	if len(pm.segments) == 0 {
 		return []string{}
 	}
 
-	// Encode playlist to get current segments (library handles window correctly)
-	buf := pm.playlist.Encode()
-	if buf == nil {
-		return []string{}
-	}
-
-	// Parse segment URIs from encoded playlist
-	content := buf.String()
-	lines := strings.Split(content, "\n")
-	segments := make([]string, 0, count)
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		// Segment URIs appear on lines that don't start with # and end with .ts
-		if line != "" && !strings.HasPrefix(line, "#") && strings.HasSuffix(line, ".ts") {
-			segments = append(segments, line)
-		}
+	segments := make([]string, 0, len(pm.segments))
+	for _, seg := range pm.segments {
+		segments = append(segments, seg.URI)
 	}
 
 	return segments
@@ -386,7 +297,7 @@ func (pm *playlistManager) GetLastSuccessfulWrite() *time.Time {
 func (pm *playlistManager) GetWindowSize() uint {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	return uint(pm.playlist.Count())
+	return uint(len(pm.segments))
 }
 
 // GetMaxDuration returns the maximum observed segment duration
@@ -404,7 +315,7 @@ func (pm *playlistManager) HealthCheck(staleThreshold time.Duration) HealthStatu
 
 	status := HealthStatus{
 		LastWriteTime:  pm.lastSuccessfulWrite,
-		WindowSize:     uint(pm.playlist.Count()),
+		WindowSize:     uint(len(pm.segments)),
 		MaxDuration:    pm.maxDuration,
 		StaleThreshold: staleThreshold,
 	}
@@ -420,4 +331,23 @@ func (pm *playlistManager) HealthCheck(staleThreshold time.Duration) HealthStatu
 	status.Healthy = status.TimeSinceLastWrite < staleThreshold
 
 	return status
+}
+
+// GetMediaSequence returns the current media sequence number.
+// Media sequence starts at 0 and increments by 1 for each segment pruned
+// from the front of the playlist (when windowSize > 0).
+// For VOD/EVENT mode (windowSize == 0), media sequence stays at 0.
+func (pm *playlistManager) GetMediaSequence() uint64 {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.mediaSequence
+}
+
+// GetSegmentCount returns the total number of segments currently in the playlist.
+// This is the length of the segments slice, which may be less than totalSegments
+// if segments have been pruned in sliding window mode.
+func (pm *playlistManager) GetSegmentCount() uint {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return uint(len(pm.segments))
 }
