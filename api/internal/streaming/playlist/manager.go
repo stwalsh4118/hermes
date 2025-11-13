@@ -3,8 +3,10 @@ package playlist
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -219,14 +221,60 @@ func (pm *playlistManager) SetDiscontinuityNext() {
 }
 
 // Write writes the playlist to disk atomically using temp file + rename pattern.
-// TODO: Full implementation with direct m3u8 text generation will be completed in task 14-3.
-// This is a minimal implementation for the design phase.
+// Generates RFC 8216 compliant m3u8 format directly as text using strings.Builder.
 func (pm *playlistManager) Write() error {
+	startTime := time.Now()
+
+	// Acquire read lock to read current state
 	pm.mu.RLock()
-	// Store values needed after lock release
 	outputPath := pm.outputPath
-	segmentCount := len(pm.segments)
+	segments := make([]SegmentMeta, len(pm.segments))
+	copy(segments, pm.segments)
+	mediaSequence := pm.mediaSequence
+	maxDuration := pm.maxDuration
+	windowSize := pm.windowSize
 	pm.mu.RUnlock()
+
+	// Generate playlist content using strings.Builder
+	var builder strings.Builder
+
+	// Write header
+	builder.WriteString("#EXTM3U\n")
+	builder.WriteString("#EXT-X-VERSION:3\n")
+
+	// Write media sequence
+	builder.WriteString(fmt.Sprintf("#EXT-X-MEDIA-SEQUENCE:%d\n", mediaSequence))
+
+	// Write target duration (ceiling of max duration)
+	targetDuration := uint(math.Ceil(maxDuration))
+	builder.WriteString(fmt.Sprintf("#EXT-X-TARGETDURATION:%d\n", targetDuration))
+
+	// Write each segment
+	for _, seg := range segments {
+		// Write discontinuity tag if set
+		if seg.Discontinuity {
+			builder.WriteString("#EXT-X-DISCONTINUITY\n")
+		}
+
+		// Write program date-time if present
+		if seg.ProgramDateTime != nil {
+			builder.WriteString(fmt.Sprintf("#EXT-X-PROGRAM-DATE-TIME:%s\n", seg.ProgramDateTime.Format(time.RFC3339)))
+		}
+
+		// Write EXTINF tag with duration (3 decimal places)
+		builder.WriteString(fmt.Sprintf("#EXTINF:%.3f,\n", seg.Duration))
+
+		// Write segment URI
+		builder.WriteString(fmt.Sprintf("%s\n", seg.URI))
+	}
+
+	// Write ENDLIST tag only in VOD/EVENT mode (windowSize == 0)
+	if windowSize == 0 {
+		builder.WriteString("#EXT-X-ENDLIST\n")
+	}
+
+	playlistContent := builder.String()
+	contentBytes := len(playlistContent)
 
 	// Create directory if it doesn't exist
 	dir := filepath.Dir(outputPath)
@@ -234,14 +282,14 @@ func (pm *playlistManager) Write() error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// TODO: Generate m3u8 format directly as text in task 14-3
-	// For now, create empty file as placeholder
+	// Create temp file in same directory
 	tempFile, err := os.CreateTemp(dir, ".playlist-*.tmp")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 	tempPath := tempFile.Name()
 
+	// Ensure cleanup on error
 	defer func() {
 		if tempFile != nil {
 			_ = tempFile.Close()
@@ -249,32 +297,47 @@ func (pm *playlistManager) Write() error {
 		}
 	}()
 
-	// Write placeholder content
-	placeholder := fmt.Sprintf("#EXTM3U\n#EXT-X-VERSION:3\n# TODO: Full playlist generation in task 14-3 (segments: %d)\n", segmentCount)
-	if _, err := tempFile.WriteString(placeholder); err != nil {
+	// Write content to temp file
+	if _, err := tempFile.WriteString(playlistContent); err != nil {
 		return fmt.Errorf("failed to write content: %w", err)
 	}
 
+	// Sync temp file to disk
 	if err := tempFile.Sync(); err != nil {
 		return fmt.Errorf("failed to sync file: %w", err)
 	}
 
+	// Close temp file
 	if err := tempFile.Close(); err != nil {
 		return fmt.Errorf("failed to close temp file: %w", err)
 	}
 
-	// Atomic rename
+	// Atomically rename temp file to final path
 	if err := os.Rename(tempPath, outputPath); err != nil {
 		return fmt.Errorf("failed to rename file: %w", err)
 	}
 
+	// Success - prevent cleanup
 	tempFile = nil
 
-	// Update last successful write timestamp
+	// Calculate latency
+	latency := time.Since(startTime)
+
+	// Update last successful write timestamp (acquire write lock)
 	pm.mu.Lock()
 	now := time.Now()
 	pm.lastSuccessfulWrite = &now
 	pm.mu.Unlock()
+
+	// Log write operation with observability metrics
+	logger.Log.Debug().
+		Str("path", outputPath).
+		Int("bytes", contentBytes).
+		Uint("segment_count", uint(len(segments))).
+		Uint64("media_sequence", mediaSequence).
+		Uint("window_size", windowSize).
+		Dur("latency_ms", latency).
+		Msg("Playlist written successfully")
 
 	return nil
 }
