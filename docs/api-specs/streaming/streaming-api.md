@@ -2860,11 +2860,22 @@ Flags the next segment to have a discontinuity tag inserted before it.
 func (m Manager) Write() error
 ```
 
-Writes the playlist to disk atomically using temp file + rename pattern.
+Generates RFC 8216 compliant m3u8 playlist format directly as text and writes to disk atomically using temp file + rename pattern.
+
+**Generated Format:**
+- Header: `#EXTM3U`, `#EXT-X-VERSION:3`
+- `#EXT-X-MEDIA-SEQUENCE` with current sequence number
+- `#EXT-X-TARGETDURATION` with `ceil(maxDuration)`
+- Segments with `#EXTINF` (duration with 3 decimal places), `#EXT-X-PROGRAM-DATE-TIME` (RFC3339), `#EXT-X-DISCONTINUITY` (if flagged)
+- `#EXT-X-ENDLIST` only in VOD/EVENT mode (windowSize == 0)
 
 **Thread Safety:**
 - Thread-safe (uses mutex)
-- Releases lock during file I/O to avoid blocking
+- Acquires read lock for reading state, releases before file I/O
+- Acquires write lock to update `lastSuccessfulWrite` timestamp
+
+**Observability:**
+- Logs write operation with metrics: path, bytes, segment count, media sequence, window size, latency
 
 ### Close
 
