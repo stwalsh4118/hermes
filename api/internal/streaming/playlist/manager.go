@@ -360,8 +360,7 @@ func (pm *playlistManager) Close() error {
 }
 
 // GetCurrentSegments returns the list of segment URIs currently in the playlist window.
-// TODO: Full implementation will be completed in task 14-4.
-// For now, returns segment URIs from the segments slice.
+// Returns a copy of segment URIs to avoid race conditions.
 func (pm *playlistManager) GetCurrentSegments() []string {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
@@ -385,11 +384,11 @@ func (pm *playlistManager) GetLastSuccessfulWrite() *time.Time {
 	return pm.lastSuccessfulWrite
 }
 
-// GetWindowSize returns the current window size (number of segments in playlist)
+// GetWindowSize returns the configured window size (maximum number of segments to keep)
 func (pm *playlistManager) GetWindowSize() uint {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	return uint(len(pm.segments))
+	return pm.windowSize
 }
 
 // GetMaxDuration returns the maximum observed segment duration
