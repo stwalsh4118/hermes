@@ -1563,6 +1563,23 @@ func (m *StreamManager) checkAndTriggerBatches()
 ```
 Checks all active streams and triggers batch generation when threshold is reached. Skips streams with no clients. Launches batch generation in goroutine for non-blocking operation.
 
+**ensurePlaylistManager:**
+```go
+func (m *StreamManager) ensurePlaylistManager(session *models.StreamSession, quality, qualityDir string) error
+```
+Ensures a playlist manager exists for a quality level. Creates playlist manager with live streaming mode (sliding window, no ENDLIST tag).
+
+**Configuration:**
+- `windowSize`: `BatchSize * 3` (live mode, enables continuous streaming)
+- `outputPath`: `{qualityDir}/{quality}.m3u8`
+- `initialTargetDuration`: `StreamSegmentDuration`
+
+**Behavior:**
+- Uses custom playlist manager implementation (replaces hls-m3u8 library)
+- Live mode: sliding window maintains recent segments, no ENDLIST tag
+- Automatically deletes pruned segment files from disk
+- ProgramDateTime calculated based on channel timeline (not generation time)
+
 **generateNextBatch:**
 ```go
 func (m *StreamManager) generateNextBatch(ctx context.Context, session *models.StreamSession) error
@@ -2866,7 +2883,7 @@ Generates RFC 8216 compliant m3u8 playlist format directly as text and writes to
 - Header: `#EXTM3U`, `#EXT-X-VERSION:3`
 - `#EXT-X-MEDIA-SEQUENCE` with current sequence number
 - `#EXT-X-TARGETDURATION` with `ceil(maxDuration)`
-- Segments with `#EXTINF` (duration with 3 decimal places), `#EXT-X-PROGRAM-DATE-TIME` (RFC3339), `#EXT-X-DISCONTINUITY` (if flagged)
+- Segments with `#EXTINF` (duration with 3 decimal places), `#EXT-X-PROGRAM-DATE-TIME` (ISO-8601: `YYYY-MM-DDTHH:MM:SSZ`), `#EXT-X-DISCONTINUITY` (if flagged)
 - `#EXT-X-ENDLIST` only in VOD/EVENT mode (windowSize == 0)
 
 **Thread Safety:**
