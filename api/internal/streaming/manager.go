@@ -182,13 +182,6 @@ func (m *StreamManager) StartStream(ctx context.Context, channelID uuid.UUID) (*
 		return nil, fmt.Errorf("failed to get channel: %w", err)
 	}
 
-	// TESTING: Skip timeline calculation and start from beginning
-	// Get current timeline position
-	// position, err := m.timelineService.GetCurrentPosition(ctx, channelID)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to get timeline position: %w", err)
-	// }
-
 	// Verify playlist has items (batch generation will handle timeline position)
 	playlistItems, err := m.repos.PlaylistItems.GetWithMedia(ctx, channelID)
 	if err != nil {
@@ -919,7 +912,7 @@ func (m *StreamManager) initializeFirstBatch(ctx context.Context, session *model
 		Str("channel_id", channelIDStr).
 		Msg("Initializing first batch")
 
-	// Get playlist items to find first media file
+	// Get playlist items to find media file
 	playlistItems, err := m.repos.PlaylistItems.GetWithMedia(ctx, channelID)
 	if err != nil {
 		logger.Log.Error().
@@ -936,22 +929,103 @@ func (m *StreamManager) initializeFirstBatch(ctx context.Context, session *model
 		return fmt.Errorf("no playlist items found for channel")
 	}
 
-	// Get first playlist item (start from beginning of playlist)
-	firstItem := playlistItems[0]
+	// Get current timeline position to determine where to start streaming
+	var firstItem *models.PlaylistItem
+	var currentPlaylistIndex int
+	var nextOffset int64
+
+	position, err := m.timelineService.GetCurrentPosition(ctx, channelID)
+	if err != nil {
+		// Fallback to starting from beginning if timeline calculation fails
+		logger.Log.Warn().
+			Err(err).
+			Str("channel_id", channelIDStr).
+			Int("playlist_items_count", len(playlistItems)).
+			Msg("Failed to get timeline position, falling back to start of playlist")
+		firstItem = playlistItems[0]
+		currentPlaylistIndex = 0
+		nextOffset = int64(0)
+	} else {
+		// Log timeline position details for debugging
+		logger.Log.Debug().
+			Str("channel_id", channelIDStr).
+			Str("timeline_media_id", position.MediaID.String()).
+			Str("timeline_media_title", position.MediaTitle).
+			Int64("timeline_offset_seconds", position.OffsetSeconds).
+			Int("playlist_items_count", len(playlistItems)).
+			Msg("Timeline position calculated, searching for matching playlist item")
+
+		// Log all MediaIDs in playlist for debugging
+		playlistMediaIDs := make([]string, 0, len(playlistItems))
+		for i, item := range playlistItems {
+			if item.Media != nil {
+				playlistMediaIDs = append(playlistMediaIDs, item.MediaID.String())
+				logger.Log.Debug().
+					Str("channel_id", channelIDStr).
+					Int("playlist_index", i).
+					Str("playlist_media_id", item.MediaID.String()).
+					Str("playlist_media_title", item.Media.Title).
+					Msg("Playlist item details")
+			} else {
+				logger.Log.Warn().
+					Str("channel_id", channelIDStr).
+					Int("playlist_index", i).
+					Str("playlist_media_id", item.MediaID.String()).
+					Msg("Playlist item has no Media populated")
+			}
+		}
+
+		// Find the playlist item matching the timeline position's MediaID
+		found := false
+		for i, item := range playlistItems {
+			if item.MediaID == position.MediaID {
+				firstItem = item
+				currentPlaylistIndex = i
+				nextOffset = position.OffsetSeconds
+				found = true
+				logger.Log.Debug().
+					Str("channel_id", channelIDStr).
+					Int("matched_playlist_index", i).
+					Str("matched_media_id", item.MediaID.String()).
+					Msg("Found matching playlist item")
+				break
+			}
+		}
+
+		if !found {
+			// Fallback to starting from beginning if MediaID not found
+			logger.Log.Warn().
+				Str("channel_id", channelIDStr).
+				Str("timeline_media_id", position.MediaID.String()).
+				Strs("playlist_media_ids", playlistMediaIDs).
+				Msg("MediaID from timeline not found in playlist, falling back to start of playlist")
+			firstItem = playlistItems[0]
+			currentPlaylistIndex = 0
+			nextOffset = int64(0)
+		} else {
+			logger.Log.Info().
+				Str("channel_id", channelIDStr).
+				Str("media_id", position.MediaID.String()).
+				Str("media_title", position.MediaTitle).
+				Int64("offset_seconds", position.OffsetSeconds).
+				Int("playlist_index", currentPlaylistIndex).
+				Msg("Starting stream from timeline position")
+		}
+	}
+
 	if firstItem.Media == nil {
 		logger.Log.Error().
 			Str("channel_id", channelIDStr).
-			Msg("First playlist item has no media")
-		return fmt.Errorf("first playlist item has no media")
+			Msg("Playlist item has no media")
+		return fmt.Errorf("playlist item has no media")
 	}
 
 	mediaFilePath := firstItem.Media.FilePath
 
-	// Initialize first batch - start from beginning of first video
+	// Initialize first batch - start from timeline position (or beginning if fallback)
 	nextBatchNumber := 0
 	nextStartSegment := 0
 	nextEndSegment := m.config.BatchSize - 1
-	nextOffset := int64(0) // Start from beginning of the media file
 
 	// Build output directory
 	outputDir := session.GetOutputDir()
@@ -966,6 +1040,19 @@ func (m *StreamManager) initializeFirstBatch(ctx context.Context, session *model
 			Str("quality", quality).
 			Msg("Failed to initialize playlist manager (continuing anyway)")
 		// Continue anyway - segments will still be generated
+	}
+
+	// Mark discontinuity at start if we're starting from middle of video
+	// This tells HLS players that we're jumping into the middle of content
+	if nextOffset > 0 {
+		pm, err := m.getPlaylistManager(session, quality)
+		if err == nil {
+			pm.SetDiscontinuityNext()
+			logger.Log.Debug().
+				Str("channel_id", channelIDStr).
+				Int64("offset_seconds", nextOffset).
+				Msg("Marking discontinuity at stream start (starting from middle of video)")
+		}
 	}
 
 	// Create first BatchState
@@ -985,12 +1072,17 @@ func (m *StreamManager) initializeFirstBatch(ctx context.Context, session *model
 	// Generate batch by looping BatchSize times, generating one segment at a time
 	currentVideoPath := mediaFilePath
 	currentOffset := nextOffset
-	currentPlaylistIndex := 0
 	previousVideoPath := currentVideoPath // Track previous video to detect switches
 
 	for segmentNum := 0; segmentNum < m.config.BatchSize; segmentNum++ {
+		// Get current playlist item
+		currentItem := playlistItems[currentPlaylistIndex]
+		if currentItem.Media == nil {
+			return fmt.Errorf("playlist item at index %d has no media", currentPlaylistIndex)
+		}
+
 		// Check if we need to advance to next video
-		if firstItem.Media != nil && currentOffset >= int64(firstItem.Media.Duration) {
+		if currentOffset >= int64(currentItem.Media.Duration) {
 			// Move to next playlist item
 			currentPlaylistIndex++
 			if currentPlaylistIndex >= len(playlistItems) {
@@ -1002,12 +1094,12 @@ func (m *StreamManager) initializeFirstBatch(ctx context.Context, session *model
 					return fmt.Errorf("reached end of playlist and channel does not loop")
 				}
 			}
-			firstItem = playlistItems[currentPlaylistIndex]
-			if firstItem.Media == nil {
+			currentItem = playlistItems[currentPlaylistIndex]
+			if currentItem.Media == nil {
 				return fmt.Errorf("playlist item at index %d has no media", currentPlaylistIndex)
 			}
 			previousVideoPath = currentVideoPath
-			currentVideoPath = firstItem.Media.FilePath
+			currentVideoPath = currentItem.Media.FilePath
 			currentOffset = 0
 
 			// Mark discontinuity when switching videos (different source file)
