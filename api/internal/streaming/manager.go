@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
@@ -815,13 +816,40 @@ func (m *StreamManager) generateSingleSegment(
 		URI:      segmentFilename,
 		Duration: float64(m.config.StreamSegmentDuration),
 	}
-	// Set ProgramDateTime based on cumulative stream position (already calculated above)
-	// This tells HLS.js the absolute timeline position of this segment in the overall stream
-	// Use session start time as base and add cumulative stream position to create sequential timestamps
-	// Note: offsetSeconds is position within current video file, not stream position
-	// streamPositionSeconds is already calculated above as segmentNumber * segmentDuration
-	sessionStartTime := session.StartedAt.UTC()
-	segmentProgramTime := sessionStartTime.Add(time.Duration(streamPositionSeconds) * time.Second)
+	// Set ProgramDateTime based on when the segment should be played according to the channel timeline
+	// ProgramDateTime should represent when the segment should be played, not when it was generated
+	// For segment 0, get the timeline position to determine when it should start playing
+	// For subsequent segments, add segment duration to get sequential timestamps
+	var segmentProgramTime time.Time
+	if segmentNumber == 0 {
+		// For the first segment, calculate when it should start playing based on timeline
+		position, err := m.timelineService.GetCurrentPosition(ctx, session.ChannelID)
+		if err != nil {
+			// Fallback to session start time if timeline calculation fails
+			logger.Log.Warn().
+				Err(err).
+				Str("channel_id", channelIDStr).
+				Msg("Failed to get timeline position for ProgramDateTime, using session start time")
+			sessionStartTime := session.StartedAt.UTC()
+			segmentProgramTime = sessionStartTime
+		} else {
+			// Calculate when segment 0 should start playing:
+			// position.StartedAt is when the current media item started playing
+			// position.OffsetSeconds is how far into that item we are
+			// So the current timeline time is: position.StartedAt + position.OffsetSeconds
+			// Segment 0 should start playing at the current timeline time
+			currentTimelineTime := position.StartedAt.Add(time.Duration(position.OffsetSeconds) * time.Second)
+			segmentProgramTime = currentTimelineTime
+			// Update session.StartedAt to this calculated time for future segments
+			// Since streamPositionSeconds is 0 for segment 0, this sets session.StartedAt = currentTimelineTime
+			// This ensures subsequent segments have correct ProgramDateTime
+			session.StartedAt = currentTimelineTime
+		}
+	} else {
+		// For subsequent segments, use session start time + cumulative stream position
+		sessionStartTime := session.StartedAt.UTC()
+		segmentProgramTime = sessionStartTime.Add(time.Duration(streamPositionSeconds) * time.Second)
+	}
 	seg.ProgramDateTime = &segmentProgramTime
 
 	prunedURIs, err := pm.AddSegment(seg)
@@ -833,8 +861,26 @@ func (m *StreamManager) generateSingleSegment(
 			Msg("Failed to add segment to playlist")
 		return fmt.Errorf("failed to add segment to playlist: %w", err)
 	}
-	// TODO: Delete pruned segment files from disk (task 14-7)
-	_ = prunedURIs // Suppress unused variable warning until task 14-7 implements file deletion
+
+	// Delete pruned segment files from disk
+	for _, prunedURI := range prunedURIs {
+		segmentPath := filepath.Join(qualityDir, prunedURI)
+		if err := os.Remove(segmentPath); err != nil {
+			// Log warning but don't fail - file may already be deleted or not exist
+			logger.Log.Warn().
+				Err(err).
+				Str("channel_id", channelIDStr).
+				Str("segment_path", segmentPath).
+				Str("pruned_uri", prunedURI).
+				Msg("Failed to delete pruned segment file")
+		} else {
+			logger.Log.Debug().
+				Str("channel_id", channelIDStr).
+				Str("segment_path", segmentPath).
+				Str("pruned_uri", prunedURI).
+				Msg("Deleted pruned segment file")
+		}
+	}
 
 	// Write playlist to disk
 	if err := pm.Write(); err != nil {
@@ -1319,9 +1365,11 @@ func (m *StreamManager) ensurePlaylistManager(session *models.StreamSession, qua
 	m.playlistManagersMu.RUnlock()
 
 	// Create playlist manager
-	// Use window size 0 to disable sliding window and keep all segments (for debugging)
+	// Use a sliding window for live/continuous streaming (no ENDLIST tag)
+	// Window size should be large enough for buffering but allow continuous playback
+	// Using 3x batch size to ensure plenty of segments available for buffering
 	playlistPath := filepath.Join(qualityDir, fmt.Sprintf("%s.m3u8", quality))
-	windowSize := uint(0) // 0 = VOD/EVENT mode (no sliding window, keep all segments)
+	windowSize := uint(m.config.BatchSize * 3) // Live mode: sliding window, no ENDLIST tag
 	segmentDuration := float64(m.config.StreamSegmentDuration)
 
 	pm, err := playlist.NewManager(windowSize, playlistPath, segmentDuration)

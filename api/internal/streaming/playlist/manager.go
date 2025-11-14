@@ -257,8 +257,9 @@ func (pm *playlistManager) Write() error {
 		}
 
 		// Write program date-time if present
+		// Format as ISO-8601: YYYY-MM-DDTHH:MM:SSZ (e.g., 2025-11-14T01:05:12Z)
 		if seg.ProgramDateTime != nil {
-			builder.WriteString(fmt.Sprintf("#EXT-X-PROGRAM-DATE-TIME:%s\n", seg.ProgramDateTime.Format(time.RFC3339)))
+			builder.WriteString(fmt.Sprintf("#EXT-X-PROGRAM-DATE-TIME:%s\n", seg.ProgramDateTime.UTC().Format("2006-01-02T15:04:05Z")))
 		}
 
 		// Write EXTINF tag with duration (3 decimal places)

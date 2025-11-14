@@ -981,9 +981,9 @@ func TestPlaylistManager_Write_ProgramDateTimeRFC3339(t *testing.T) {
 	err = pm.Write()
 	require.NoError(t, err)
 
-	// Verify RFC3339 format
+	// Verify ISO-8601 format
 	content := readPlaylistContent(t, outputPath)
-	assert.Contains(t, content, "#EXT-X-PROGRAM-DATE-TIME:2025-01-11T12:34:56Z", "program date-time should be in RFC3339 format")
+	assert.Contains(t, content, "#EXT-X-PROGRAM-DATE-TIME:2025-01-11T12:34:56Z", "program date-time should be in ISO-8601 format")
 }
 
 func TestPlaylistManager_Write_MediaSequenceMatches(t *testing.T) {
