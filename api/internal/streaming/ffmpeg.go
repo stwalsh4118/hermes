@@ -239,11 +239,14 @@ func validateStreamParams(params StreamParams) error {
 
 // buildInputArgs builds input-related FFmpeg arguments
 func buildInputArgs(params StreamParams) []string {
-	args := make([]string, 0, 7)
+	args := make([]string, 0, 10)
 
 	// Add seeking if specified (must come BEFORE input for fast seeking)
 	if params.SeekSeconds > 0 {
 		args = append(args, "-ss", strconv.FormatInt(params.SeekSeconds, 10))
+		// When seeking, ensure PTS timestamps are regenerated from 0
+		// This is critical for proper HLS playback when starting from middle of video
+		args = append(args, "-fflags", "+genpts")
 	}
 
 	// Add infinite loop only for continuous streaming (not batch mode, not single segment mode)
@@ -371,13 +374,16 @@ func buildStreamSegmentArgs(params StreamParams) []string {
 	// Use StreamPositionSeconds for cumulative stream timeline (segmentNumber * segmentDuration)
 	// This ensures consistent timestamps even when switching between video files
 	// -output_ts_offset expects seconds (not 90kHz PTS units)
+	// IMPORTANT: Always use StreamPositionSeconds (0 for segment 0, 4 for segment 1, etc.)
+	// Do NOT use SeekSeconds as fallback - that would break sequential PTS timestamps
 	tsOffset := params.StreamPositionSeconds
-	// If StreamPositionSeconds is not set (0 and SeekSeconds was used), use SeekSeconds as fallback
-	// But in our current implementation, StreamPositionSeconds is always set
-	if tsOffset == 0 && params.SeekSeconds > 0 {
-		tsOffset = params.SeekSeconds
-	}
 	args = append(args, "-output_ts_offset", strconv.FormatInt(tsOffset, 10))
+
+	// When seeking, also add -vsync 0 to drop frames and regenerate timestamps properly
+	// This ensures PTS timestamps are sequential even when starting from middle of video
+	if params.SeekSeconds > 0 {
+		args = append(args, "-vsync", "0")
+	}
 
 	// Output path must be last
 	args = append(args, outputPath)
